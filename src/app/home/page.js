@@ -1,12 +1,19 @@
-'use client';
+"use client";
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Download, Share2, Sun, Moon, Minus, Plus, Type, Palette, Image as ImageIcon, Send, Twitter, Facebook, Linkedin } from 'lucide-react';
+import { auth } from '../../lib/firebaseConfig';
+import { getStorage, ref, uploadString, getDownloadURL } from "firebase/storage";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import { Download, Sun, Moon, Minus, Plus, Type, Pen, Palette, Image as ImageIcon, Send } from 'lucide-react';
 
 // Initialize the Gemini API
-// Replace 'YOUR_API_KEY' with your actual Gemini API key
-const genAI = new GoogleGenerativeAI('AIzaSyDdw5ohLMATca60VGzF1Wk2mdS2kHAayYE');
+const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY);
+
+// Initialize Firebase
+const storage = getStorage();
+const db = getFirestore();
 
 export default function ImageGenerator() {
   const [formState, setFormState] = useState({
@@ -38,9 +45,78 @@ export default function ImageGenerator() {
   const [activeSection, setActiveSection] = useState(null);
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGeneratingText, setIsGeneratingText] = useState(false);
+  const [user, setUser] = useState(null);
+  const [aiCredits, setAiCredits] = useState(5);
+  const [downloadCredits, setDownloadCredits] = useState(5);
+  const [nextResetTime, setNextResetTime] = useState(null);
   const canvasRef = useRef(null);
   const canvasContainerRef = useRef(null);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        fetchUserCredits(currentUser.uid);
+      } else {
+        setUser(null);
+        setAiCredits(5);
+        setDownloadCredits(5);
+        setNextResetTime(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const fetchUserCredits = async (userId) => {
+    const userDoc = await getDoc(doc(db, "users", userId));
+    if (userDoc.exists()) {
+      const userData = userDoc.data();
+      setAiCredits(userData.aiCredits || 5);
+      setDownloadCredits(userData.downloadCredits || 5);
+      setNextResetTime(userData.nextResetTime?.toDate() || null);
+
+      // Check if credits need to be reset
+      const now = Timestamp.now();
+      if (!userData.nextResetTime || now.toMillis() >= userData.nextResetTime.toMillis()) {
+        await resetCredits(userId);
+      }
+    } else {
+      // If it's a new user, initialize their credits
+      await resetCredits(userId);
+    }
+  };
+
+  const resetCredits = async (userId) => {
+    const now = Timestamp.now();
+    const tomorrow = new Date(now.toDate());
+    tomorrow.setHours(24, 0, 0, 0);
+    const nextReset = Timestamp.fromDate(tomorrow);
+
+    await setDoc(doc(db, "users", userId), {
+      aiCredits: 5,
+      downloadCredits: 5,
+      nextResetTime: nextReset,
+      lastResetTime: now
+    }, { merge: true });
+
+    setAiCredits(5);
+    setDownloadCredits(5);
+    setNextResetTime(nextReset.toDate());
+  };
+
+  const updateUserCredits = async (newAiCredits, newDownloadCredits) => {
+    if (!user) return;
+
+    await updateDoc(doc(db, "users", user.uid), {
+      aiCredits: newAiCredits,
+      downloadCredits: newDownloadCredits
+    });
+
+    setAiCredits(newAiCredits);
+    setDownloadCredits(newDownloadCredits);
+  };
 
   const handleInputChange = (key, value) => {
     setFormState((prev) => ({ ...prev, [key]: value }));
@@ -78,60 +154,104 @@ export default function ImageGenerator() {
     }
   };
 
-  const generateImage = () => {
-    const canvas = canvasRef.current;
-    const imageDataUrl = canvas.toDataURL('image/png');
-    setImageUrl(imageDataUrl);
+  const handleAITextGeneration = async () => {
+    if (!aiPrompt || aiCredits <= 0) return;
+    setIsGeneratingText(true);
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+      const result = await model.generateContent(aiPrompt);
+      const response = await result.response;
+      const generatedText = response.text();
+      setFormState(prev => ({ ...prev, text: generatedText }));
+      await updateUserCredits(aiCredits - 1, downloadCredits);
+    } catch (error) {
+      console.error('Text generation failed:', error);
+      alert('Failed to generate text. Please try again.');
+    } finally {
+      setIsGeneratingText(false);
+    }
   };
 
-  const downloadImage = useCallback(() => {
-    generateImage();
-    if (imageUrl) {
+  const uploadAndDownloadImage = async () => {
+    if (!user || downloadCredits <= 0) {
+      alert("You don't have enough credits or you're not logged in.");
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const canvas = canvasRef.current;
+      const imageDataUrl = canvas.toDataURL('image/png');
+
+      // Upload to Firebase Storage
+      const folderPath = `images/${user.uid}`;
+      const storageRef = ref(storage, `${folderPath}/${Date.now()}.png`);
+      const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
+      const downloadURL = await getDownloadURL(snapshot.ref);
+
+      // Save user data to Firestore
+      await saveUserDataToFirestore(downloadURL, folderPath);
+
+      // Trigger download
       const link = document.createElement('a');
-      link.href = imageUrl;
+      link.href = downloadURL;
       link.download = 'generated-image.png';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-    }
-  }, [imageUrl]);
 
-  const shareImage = (platform) => {
-    generateImage();
-    if (imageUrl) {
-      let shareUrl;
-      switch (platform) {
-        case 'twitter':
-          shareUrl = `https://twitter.com/intent/tweet?url=${encodeURIComponent(imageUrl)}`;
-          break;
-        case 'facebook':
-          shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(imageUrl)}`;
-          break;
-        case 'linkedin':
-          shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(imageUrl)}`;
-          break;
-        default:
-          return;
-      }
-      window.open(shareUrl, '_blank');
+      await updateUserCredits(aiCredits, downloadCredits - 1);
+
+      alert("Image generated, saved, and downloaded successfully!");
+    } catch (error) {
+      console.error("Error generating, saving, or downloading image: ", error);
+      alert("An error occurred. Please try again.");
+    } finally {
+      setIsGenerating(false);
     }
   };
 
-  const drawTextWithEffects = (ctx, text, x, y, scale) => {
+  const saveUserDataToFirestore = async (imageUrl, folderPath) => {
+    if (!user) {
+      console.error("No user logged in");
+      return;
+    }
+
+    try {
+      await setDoc(doc(db, "users", user.uid), {
+        name: user.displayName,
+        email: user.email,
+        lastGeneratedImage: imageUrl,
+        imageFolderPath: folderPath,
+        timestamp: serverTimestamp()
+      }, { merge: true });
+      console.log("User data saved successfully");
+    } catch (error) {
+      console.error("Error saving user data: ", error);
+    }
+  };
+
+  const drawTextWithEffects = (ctx, text, scale) => {
     const lines = text.split('\n');
     const lineHeight = formState.fontSize * formState.lineHeight * scale;
     
     ctx.textAlign = formState.textAlign;
     ctx.font = `${formState.fontSize * scale}px ${formState.fontFamily}`;
     
-    const gradient = ctx.createLinearGradient(0, y, 0, y + lineHeight * lines.length);
+    const gradient = ctx.createLinearGradient(0, formState.textY * scale, 0, formState.textY * scale + lineHeight * lines.length);
     gradient.addColorStop(0, formState.gradientStart);
     gradient.addColorStop(1, formState.gradientEnd);
 
     lines.forEach((line, index) => {
-      const yPos = y + index * lineHeight;
-      const xPos = formState.textAlign === 'center' ? ctx.canvas.width / 2 :
-                   formState.textAlign === 'right' ? ctx.canvas.width - x : x;
+      const yPos = formState.textY * scale + index * lineHeight;
+      let xPos;
+      if (formState.textAlign === 'center') {
+        xPos = ctx.canvas.width / 2;
+      } else if (formState.textAlign === 'right') {
+        xPos = ctx.canvas.width - formState.textX * scale;
+      } else {
+        xPos = formState.textX * scale;
+      }
 
       if (formState.outlineWidth > 0) {
         ctx.strokeStyle = formState.outlineColor;
@@ -170,17 +290,15 @@ export default function ImageGenerator() {
       };
     });
 
-    const xPos = (formState.textX / 100) * canvas.width;
-    const yPos = (formState.textY / 100) * canvas.height;
-    drawTextWithEffects(ctx, formState.text, xPos, yPos, scale);
+    drawTextWithEffects(ctx, formState.text, scale);
   }, [formState, overlayImages, zoom]);
 
   useEffect(() => {
     const resizeCanvas = () => {
       const container = canvasContainerRef.current;
       const canvas = canvasRef.current;
-      const { width} = container.getBoundingClientRect();
-      const size = Math.min(width, 600); // Set maximum size to 800px
+      const { width, height } = container.getBoundingClientRect();
+      const size = Math.min(width, height, 500);
       const scale = window.devicePixelRatio;
 
       canvas.width = size * scale;
@@ -219,7 +337,6 @@ export default function ImageGenerator() {
       setIsMoving(true);
       lastMousePosRef.current = { x, y };
 
-      // Check if click is near the edge for resizing
       const img = overlayImages[clickedImageIndex];
       const edgeThreshold = 10 * scale;
       if (x >= (img.x + img.width) * scale - edgeThreshold && y >= (img.y + img.height) * scale - edgeThreshold) {
@@ -227,14 +344,13 @@ export default function ImageGenerator() {
         setResizeHandle('bottomRight');
       }
     } else {
-      // Check if click is on text
-      const textX = (formState.textX / 100) * canvas.width;
-      const textY = (formState.textY / 100) * canvas.height;
+      const textX = formState.textX * scale;
+      const textY = formState.textY * scale;
       const ctx = canvas.getContext('2d');
       const textWidth = ctx.measureText(formState.text).width;
       const textHeight = formState.fontSize * scale;
 
-      if (x >= textX && x <= textX + textWidth && y >= textY && y <= textY + textHeight) {
+      if (x >= textX && x <= textX + textWidth && y >= textY - textHeight && y <= textY) {
         setIsMovingText(true);
         lastMousePosRef.current = { x, y };
       } else {
@@ -256,7 +372,8 @@ export default function ImageGenerator() {
       const dx = (x - lastMousePosRef.current.x) / scale;
       const dy = (y - lastMousePosRef.current.y) / scale;
 
-      updateOverlayImage(selectedImage, { 
+      updateOverlayImage(selectedImage, 
+ { 
         x: overlayImages[selectedImage].x + dx,
         y: overlayImages[selectedImage].y + dy
       });
@@ -271,13 +388,13 @@ export default function ImageGenerator() {
         });
       }
     } else if (isMovingText) {
-      const dx = x - lastMousePosRef.current.x;
-      const dy = y - lastMousePosRef.current.y;
+      const dx = (x - lastMousePosRef.current.x) / scale;
+      const dy = (y - lastMousePosRef.current.y) / scale;
 
       setFormState(prev => ({
         ...prev,
-        textX: Math.max(0, Math.min(100, prev.textX + (dx / canvas.width) * 100)),
-        textY: Math.max(0, Math.min(100, prev.textY + (dy / canvas.height) * 100))
+        textX: Math.max(0, Math.min(canvas.width / scale, prev.textX + dx)),
+        textY: Math.max(prev.fontSize, Math.min(canvas.height / scale, prev.textY + dy))
       }));
 
       lastMousePosRef.current = { x, y };
@@ -297,65 +414,43 @@ export default function ImageGenerator() {
     setActiveSection(activeSection === section ? null : section);
   };
 
-  const handleAITextGeneration = async () => {
-    if (!aiPrompt) return;
-    setIsGeneratingText(true);
-    try {
-      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-      const result = await model.generateContent(aiPrompt);
-      const response = await result.response;
-      const generatedText = response.text();
-      setFormState(prev => ({ ...prev, text: generatedText }));
-    } catch (error) {
-      console.error('Text generation failed:', error);
-      alert('Failed to generate text. Please try again.');
-    } finally {
-      setIsGeneratingText(false);
-    }
-  };
-
   return (
-    <div className={`container ${isDarkMode ? 'dark' : 'ligth'}`}>
+    <div className={`container ${isDarkMode ? 'dark' : 'light'}`}>
       <style jsx>{`
         .container {
           font-family: 'Inter', sans-serif;
-          max-width: 1200px;
-          margin: 0 0;
+          max-width: 100%;
+          margin: 0;
           padding: 20px;
           color: #333;
-          background-color: red;
+          background-color: #ffffff;
           min-height: 100vh;
           display: flex;
           flex-direction: column;
-          left: 0;
-          rigth: 0;
         }
         .dark {
           background-color: #292828;
           color: #e2e8f0;
         }
-        .ligth {
+        .light {
           background-color: white;
           color: black;
-          left: 0;
-          rigth: 0;
-          
         }
         header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 0px;
-          margin-top: 0px;
           padding: 10px;
-          background-color: white;
+          background-color: #ffffff;
           position: fixed;
           top: 0;
           left: 0;
           right: 0;
+          z-index: 1000;
+          height: 60px;
         }
         h1 {
-          font-size: 14px;
+          font-size: 24px;
           margin: 0;
           color: #D2A76A;
         }
@@ -363,21 +458,20 @@ export default function ImageGenerator() {
           display: flex;
           gap: 10px;
         }
-        .ligth  button{
-           background-color: white;  
-           color: black;
+        .dark button {
+          background-color: #D2A76A;
+          color: black;
         }
-        .dark  button{
-           background-color: #D2A76A;  
-           color: black;
+        .light button {
+          background-color: #f0f0f0;
+          color: black;
         }
-        .dark header{
+        .dark header {
           background-color: #1a1a1a;
         }
-        .ligth header{
+        .light header {
           background-color: #D2A76A;
-          color: #D2A76A;
-      }
+        }
         button {
           display: flex;
           align-items: center;
@@ -386,8 +480,6 @@ export default function ImageGenerator() {
           height: 40px;
           border: none;
           border-radius: 50%;
-          background-color: white;
-          color: white;
           cursor: pointer;
           transition: background-color 0.3s;
         }
@@ -398,39 +490,33 @@ export default function ImageGenerator() {
           background-color: #a0aec0;
           cursor: not-allowed;
         }
-        .ligth .app_name{
-          color: white;
-        }
         main {
           flex: 1;
           display: flex;
           flex-direction: column;
-          left: 0;
-          rigth: 0;
-          gap: 20px;
-          
+          align-items: center;
+          justify-content: center;
+          margin-top: 80px;
+          margin-bottom: 80px;
         }
         .canvas-container {
-          
           width: 100%;
-          max-width: 300px;
-          heigth: 10%;
-          max-heigth: 100px;
-          margin-top: 100px;
+          max-width: 500px;
+          height: 500px;
           margin: 0 auto;
-          left: 0;
-          rigth: 0;
-          background-color: red;
-          box-shadow: 0 4px 6px rgba(0, 0, 0, black);
+          background-color: #f0f0f0;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          position: relative;
+          z-index: 10;
         }
         .dark .canvas-container {
           background-color: #1a1a1a;
         }
         canvas {
-          position: fixed;
           display: block;
-          margin-top: 120px;
-          width: 300px;
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
         }
         .zoom-controls {
           position: absolute;
@@ -449,25 +535,28 @@ export default function ImageGenerator() {
           bottom: 0;
           left: 0;
           right: 0;
+          z-index: 1000;
+          height: 60px;
         }
         .dark .bottom-toolbar {
           background-color: #1a1a1a;
         }
-        .ligth .bottom-toolbar {
+        .light .bottom-toolbar {
           background-color: #D2A76A;
         }
         .section-content {
           padding: 20px;
-          background-color: #D2A76A;
+          background-color: #f0f0f0;
           position: fixed;
           bottom: 60px;
           left: 0;
           right: 0;
           max-height: 300px;
           overflow-y: auto;
+          z-index: 900;
         }
         .dark .section-content {
-          background-color: #1a1a1a;
+          background-color: #333333;
         }
         textarea, select, input[type="range"] {
           width: 70%;
@@ -475,11 +564,11 @@ export default function ImageGenerator() {
           margin-bottom: 10px;
           border: 1px solid #4a5568;
           border-radius: 5px;
-          background-color: #FFE5AD;
+          background-color: #ffffff;
           color: black;
         }
         .dark textarea, .dark select, .dark input[type="range"] {
-          background-color: #333333;
+          background-color: #1a1a1a;
           color: #e2e8f0;
         }
         .overlay-image-control {
@@ -500,72 +589,50 @@ export default function ImageGenerator() {
           padding: 0;
           border: none;
         }
-        .logoImg{
-            maxWidth: 40px;
-            height: 40px;
-            margin-right: 5px;
-            box-shadow: 0 4px 8px rgba(255,255,255,0.1);
-            border-radius: 100%;
-            right:0;
-          }
-          .logo{
-            display: flex;
-            alignItems: center;
-            justifyContent: space-around;
-            maxWidth: 1200px;
-            margin: 0px;
-            padding: 0px;
-          }
-          .app_name {
-            margin-top: 12px;
-          }
-          .section-content button{
-            font-size:5px;
-            margin: 10px;
-
-          }
+        .logoImg {
+          max-width: 40px;
+          height: 40px;
+          margin-right: 10px;
+          box-shadow: 0 4px 8px rgba(255,255,255,0.1);
+          border-radius: 50%;
+        }
+        .logo {
+          display: flex;
+          align-items: center;
+        }
+        .app_name {
+          margin: 0;
+        }
+        .section-content {
+          font-size: 15px;
+        }
+        .section-content button{
+          font-size: 4px;
+          margin:8px;
+        }
+        .credits-info {
+          margin-top: 20px;
+          text-align: center;
+        }
         @media (max-width: 768px) {
           .header-buttons {
             flex-wrap: wrap;
-            }
-          .app_name{
-            size: 10%;
-            color: #D2A76A;
           }
           .canvas-container {
-            
-            width: 100%;
-            max-width: 200px;
-            max-heigth: 100px;
-            margin-top: 520px;
-            margin: 0 auto;
-            background-color: red;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-width: 100%;
+            height: auto;
+            aspect-ratio: 1 / 1;
           }
-            canvas {
-              display: block;
-              margin-top: 200px;
-              width: 10px;
-              heigth: 10%;
-            }
-
         }
       `}</style>
       <header>
-      <div className='logo'><img src="/larg.png" alt="PostPen App Interface" className='logoImg' /><h1 className='app_name'>PostPen</h1>
-                        </div>
+        <div className='logo'>
+          <img src="/larg.png" alt="PostPen App Interface" className='logoImg' />
+          <h1 className='app_name'>PostPen</h1>
+        </div>
         <div className="header-buttons">
-          <button onClick={downloadImage}>
+          <button onClick={uploadAndDownloadImage} disabled={isGenerating || !user || downloadCredits <= 0}>
             <Download size={18} />
-          </button>
-          <button onClick={() => shareImage('twitter')}>
-            <Twitter size={18} />
-          </button>
-          <button onClick={() => shareImage('facebook')}>
-            <Facebook size={18} />
-          </button>
-          <button onClick={() => shareImage('linkedin')}>
-            <Linkedin size={18} />
           </button>
           <button onClick={toggleDarkMode}>
             {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
@@ -591,10 +658,17 @@ export default function ImageGenerator() {
             </button>
           </div>
         </div>
+        <div className="credits-info">
+          <p>AI Credits: {aiCredits}</p>
+          <p>Download Credits: {downloadCredits}</p>
+          {nextResetTime && (
+            <p>Next reset: {nextResetTime.toLocaleString()}</p>
+          )}
+        </div>
       </main>
       <div className="bottom-toolbar">
         <button onClick={() => toggleSection('text')}>
-          <Type size={18} />
+          <Pen size={18} />
         </button>
         <button onClick={() => toggleSection('image')}>
           <ImageIcon size={18} />
@@ -608,12 +682,13 @@ export default function ImageGenerator() {
       </div>
       {activeSection === 'text' && (
         <div className="section-content">
+          <label>AI text generator</label>
           <textarea
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
             placeholder="Enter prompt for AI text generation..."
           />
-          <button onClick={handleAITextGeneration} disabled={isGeneratingText}>
+          <button onClick={handleAITextGeneration} disabled={isGeneratingText || aiCredits <= 0}>
             <Send size={18} />
             {isGeneratingText ? 'Generating...' : ''}
           </button>
