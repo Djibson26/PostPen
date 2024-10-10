@@ -4,7 +4,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { auth } from '../../lib/firebaseConfig';
 import { getStorage, ref, uploadString, getDownloadURL } from "firebase/storage";
-import { getFirestore, doc, setDoc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, updateDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { Download, Sun, Moon, Minus, Plus, Type, Pen, Palette, Image as ImageIcon, Send } from 'lucide-react';
 
@@ -69,112 +69,92 @@ export default function ImageGenerator() {
     return () => unsubscribe();
   }, []);
 
-// Function to fetch server time from the World Time API
-const fetchServerTime = async () => {
-  const response = await fetch("http://worldtimeapi.org/api/ip");
-  const data = await response.json();
-  return new Date(data.utc_datetime); // UTC time
-};
-
-// Function to fetch user credits
-const fetchUserCredits = async (userId) => {
-  const userDoc = await getDoc(doc(db, "users", userId));
-
-  if (userDoc.exists()) {
-    const userData = userDoc.data();
-
-    // Use server-side timestamp for comparison
-    const now = await fetchServerTime(); // Fetch server time
-    const lastResetTime = userData.lastResetTime?.toDate() || new Date(0);
-    const nextResetTime = new Date(lastResetTime.getTime() + 24 * 60 * 60 * 1000); // 24 hours later
-
-    // Set credits and next reset time
-    setAiCredits(userData.aiCredits || 5);
-    setDownloadCredits(userData.downloadCredits || 5);
-    setNextResetTime(nextResetTime);
-
-    if (now >= nextResetTime) {
-      // Reset credits if the reset time has passed
-      await resetUserCredits(userId);
+  const fetchWorldTime = async () => {
+    try {
+      const response = await fetch('http://worldtimeapi.org/api/ip');
+      const data = await response.json();
+      return new Date(data.datetime);
+    } catch (error) {
+      console.error('Error fetching world time:', error);
+      return new Date(); // Fallback to local time if API fails
     }
-  } else {
-    // If it's a new user, initialize their credits
-    await initializeUserCredits(userId);
-  }
-};
-
-// Function to reset user credits
-const resetUserCredits = async (userId) => {
-  const userRef = doc(db, "users", userId);
-  
-  // Fetch server time before resetting credits
-  const serverTime = await fetchServerTime();
-
-  const resetData = {
-    aiCredits: 5,
-    downloadCredits: 5,
-    lastResetTime: serverTimestamp(), // Keep this for Firestore
   };
 
-  // Update Firestore with new credits and last reset time
-  await updateDoc(userRef, resetData);
+  const fetchUserCredits = async (userId) => {
+    const userDoc = await getDoc(doc(db, "users", userId));
 
-  setAiCredits(resetData.aiCredits);
-  setDownloadCredits(resetData.downloadCredits);
-  
-  // Calculate the next reset time based on server time
-  const nextResetTime = new Date(serverTime.getTime() + 24 * 60 * 60 * 1000);
-  setNextResetTime(nextResetTime);
-};
+    if (userDoc.exists()) {
+      const userData = userDoc.data();
 
-// Function to initialize user credits
-const initializeUserCredits = async (userId) => {
-  const initialCredits = {
-    aiCredits: 5,
-    downloadCredits: 5,
-    lastResetTime: serverTimestamp(), // Keep this for Firestore
+      const worldTime = await fetchWorldTime();
+      const lastResetTime = userData.lastResetTime?.toDate() || new Date(0);
+      const nextResetTime = new Date(lastResetTime.getTime() + 24 * 60 * 60 * 1000); // 24 hours later
+
+      setAiCredits(userData.aiCredits || 5);
+      setDownloadCredits(userData.downloadCredits || 5);
+      setNextResetTime(nextResetTime);
+
+      if (worldTime >= nextResetTime) {
+        // Reset credits if the reset time has passed
+        await resetUserCredits(userId);
+      }
+    } else {
+      // If it's a new user, initialize their credits
+      await initializeUserCredits(userId);
+    }
   };
 
-  // Fetch server time when initializing
-  const serverTime = await fetchServerTime();
+  const resetUserCredits = async (userId) => {
+    const userRef = doc(db, "users", userId);
+    const worldTime = await fetchWorldTime();
 
-  await setDoc(doc(db, "users", userId), initialCredits);
-  setAiCredits(initialCredits.aiCredits);
-  setDownloadCredits(initialCredits.downloadCredits);
-  
-  // Set the next reset time based on server time
-  const nextResetTime = new Date(serverTime.getTime() + 24 * 60 * 60 * 1000);
-  setNextResetTime(nextResetTime);
-};
+    const resetData = {
+      aiCredits: 5,
+      downloadCredits: 5,
+      lastResetTime: worldTime,
+    };
 
-// Function to update user credits
-const updateUserCredits = async (userId, newAiCredits, newDownloadCredits) => {
-  if (!userId) return;
+    await updateDoc(userRef, resetData);
 
-  const userRef = doc(db, "users", userId);
-  
-  try {
-    // Fetch server time before updating credits
-    const serverTime = await fetchServerTime();
+    setAiCredits(resetData.aiCredits);
+    setDownloadCredits(resetData.downloadCredits);
+    setNextResetTime(new Date(worldTime.getTime() + 24 * 60 * 60 * 1000));
+  };
 
-    await updateDoc(userRef, {
-      aiCredits: newAiCredits,
-      downloadCredits: newDownloadCredits,
-      lastUpdateTime: serverTimestamp(), // Keep this for Firestore
-    });
+  const initializeUserCredits = async (userId) => {
+    const worldTime = await fetchWorldTime();
+    const initialCredits = {
+      aiCredits: 5,
+      downloadCredits: 5,
+      lastResetTime: worldTime,
+    };
 
-    setAiCredits(newAiCredits);
-    setDownloadCredits(newDownloadCredits);
+    await setDoc(doc(db, "users", userId), initialCredits);
+    setAiCredits(initialCredits.aiCredits);
+    setDownloadCredits(initialCredits.downloadCredits);
+    setNextResetTime(new Date(worldTime.getTime() + 24 * 60 * 60 * 1000));
+  };
+
+  const updateUserCredits = async (newAiCredits, newDownloadCredits) => {
+    if (!user) return;
+
+    const userRef = doc(db, "users", user.uid);
+    const worldTime = await fetchWorldTime();
     
-    // Update the next reset time if necessary
-    const nextResetTime = new Date(serverTime.getTime() + 24 * 60 * 60 * 1000);
-    setNextResetTime(nextResetTime);
-  } catch (error) {
-    console.error("Error updating credits:", error);
-    alert("Failed to update credits. Please try again.");
-  }
-};
+    try {
+      await updateDoc(userRef, {
+        aiCredits: newAiCredits,
+        downloadCredits: newDownloadCredits,
+        lastUpdateTime: worldTime,
+      });
 
+      setAiCredits(newAiCredits);
+      setDownloadCredits(newDownloadCredits);
+    } catch (error) {
+      console.error("Error updating credits:", error);
+      alert("Failed to update credits. Please try again.");
+    }
+  };
 
   const handleInputChange = (key, value) => {
     setFormState((prev) => ({ ...prev, [key]: value }));
@@ -276,12 +256,13 @@ const updateUserCredits = async (userId, newAiCredits, newDownloadCredits) => {
     }
 
     try {
+      const worldTime = await fetchWorldTime();
       await setDoc(doc(db, "users", user.uid), {
         name: user.displayName,
         email: user.email,
         lastGeneratedImage: imageUrl,
         imageFolderPath: folderPath,
-        timestamp: serverTimestamp()
+        timestamp: worldTime
       }, { merge: true });
       console.log("User data saved successfully");
     } catch (error) {
@@ -399,6 +380,7 @@ const updateUserCredits = async (userId, newAiCredits, newDownloadCredits) => {
       const edgeThreshold = 10 * scale;
       if (x >= (img.x + img.width) * scale - edgeThreshold && y >= (img.y + img.height) * scale - edgeThreshold) {
         setIsResizing(true);
+        
         setResizeHandle('bottomRight');
       }
     } else {
@@ -406,7 +388,7 @@ const updateUserCredits = async (userId, newAiCredits, newDownloadCredits) => {
       const textY = formState.textY * scale;
       const ctx = canvas.getContext('2d');
       const textWidth = ctx.measureText(formState.text).width;
-      const  textHeight = formState.fontSize * scale;
+      const textHeight = formState.fontSize * scale;
 
       if (x >= textX && x <= textX + textWidth && y >= textY - textHeight && y <= textY) {
         setIsMovingText(true);
