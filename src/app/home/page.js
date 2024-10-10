@@ -73,28 +73,34 @@ export default function ImageGenerator() {
     try {
       const response = await fetch('http://worldtimeapi.org/api/ip');
       const data = await response.json();
-      return new Date(data.datetime);
+      return data;
     } catch (error) {
       console.error('Error fetching world time:', error);
-      return new Date(); // Fallback to local time if API fails
+      throw new Error('Failed to fetch world time');
     }
+  };
+
+  const calculateNextResetTime = (currentTime) => {
+    const nextDay = new Date(currentTime.datetime);
+    nextDay.setDate(nextDay.getDate() + 1);
+    nextDay.setHours(0, 0, 0, 0);
+    return nextDay.toISOString();
   };
 
   const fetchUserCredits = async (userId) => {
     const userDoc = await getDoc(doc(db, "users", userId));
+    const worldTime = await fetchWorldTime();
 
     if (userDoc.exists()) {
       const userData = userDoc.data();
-
-      const worldTime = await fetchWorldTime();
-      const lastResetTime = userData.lastResetTime?.toDate() || new Date(0);
-      const nextResetTime = new Date(lastResetTime.getTime() + 24 * 60 * 60 * 1000); // 24 hours later
+      const lastResetTime = userData.lastResetTime?.seconds * 1000 || 0;
+      const nextResetTime = calculateNextResetTime(worldTime);
 
       setAiCredits(userData.aiCredits || 5);
       setDownloadCredits(userData.downloadCredits || 5);
       setNextResetTime(nextResetTime);
 
-      if (worldTime >= nextResetTime) {
+      if (new Date(worldTime.datetime) >= new Date(nextResetTime)) {
         // Reset credits if the reset time has passed
         await resetUserCredits(userId);
       }
@@ -107,32 +113,36 @@ export default function ImageGenerator() {
   const resetUserCredits = async (userId) => {
     const userRef = doc(db, "users", userId);
     const worldTime = await fetchWorldTime();
+    const nextResetTime = calculateNextResetTime(worldTime);
 
     const resetData = {
       aiCredits: 5,
       downloadCredits: 5,
-      lastResetTime: worldTime,
+      lastResetTime: { seconds: worldTime.unixtime, nanoseconds: 0 },
+      nextResetTime: nextResetTime,
     };
 
     await updateDoc(userRef, resetData);
 
     setAiCredits(resetData.aiCredits);
     setDownloadCredits(resetData.downloadCredits);
-    setNextResetTime(new Date(worldTime.getTime() + 24 * 60 * 60 * 1000));
+    setNextResetTime(nextResetTime);
   };
 
   const initializeUserCredits = async (userId) => {
     const worldTime = await fetchWorldTime();
+    const nextResetTime = calculateNextResetTime(worldTime);
     const initialCredits = {
       aiCredits: 5,
       downloadCredits: 5,
-      lastResetTime: worldTime,
+      lastResetTime: { seconds: worldTime.unixtime, nanoseconds: 0 },
+      nextResetTime: nextResetTime,
     };
 
     await setDoc(doc(db, "users", userId), initialCredits);
     setAiCredits(initialCredits.aiCredits);
     setDownloadCredits(initialCredits.downloadCredits);
-    setNextResetTime(new Date(worldTime.getTime() + 24 * 60 * 60 * 1000));
+    setNextResetTime(nextResetTime);
   };
 
   const updateUserCredits = async (newAiCredits, newDownloadCredits) => {
@@ -145,7 +155,7 @@ export default function ImageGenerator() {
       await updateDoc(userRef, {
         aiCredits: newAiCredits,
         downloadCredits: newDownloadCredits,
-        lastUpdateTime: worldTime,
+        lastUpdateTime: { seconds: worldTime.unixtime, nanoseconds: 0 },
       });
 
       setAiCredits(newAiCredits);
@@ -221,19 +231,22 @@ export default function ImageGenerator() {
       const canvas = canvasRef.current;
       const imageDataUrl = canvas.toDataURL('image/png');
 
+      const worldTime = await fetchWorldTime();
+      const timestamp = worldTime.unixtime;
+
       // Upload to Firebase Storage
       const folderPath = `images/${user.uid}`;
-      const storageRef = ref(storage, `${folderPath}/${Date.now()}.png`);
+      const storageRef = ref(storage, `${folderPath}/${timestamp}.png`);
       const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
       const downloadURL = await getDownloadURL(snapshot.ref);
 
       // Save user data to Firestore
-      await saveUserDataToFirestore(downloadURL, folderPath);
+      await saveUserDataToFirestore(downloadURL, folderPath, timestamp);
 
       // Trigger download
       const link = document.createElement('a');
       link.href = downloadURL;
-      link.download = 'generated-image.png';
+      link.download = `generated-image-${timestamp}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -249,20 +262,19 @@ export default function ImageGenerator() {
     }
   };
 
-  const saveUserDataToFirestore = async (imageUrl, folderPath) => {
+  const saveUserDataToFirestore = async (imageUrl, folderPath, timestamp) => {
     if (!user) {
       console.error("No user logged in");
       return;
     }
 
     try {
-      const worldTime = await fetchWorldTime();
       await setDoc(doc(db, "users", user.uid), {
         name: user.displayName,
         email: user.email,
         lastGeneratedImage: imageUrl,
         imageFolderPath: folderPath,
-        timestamp: worldTime
+        timestamp: { seconds: timestamp, nanoseconds: 0 }
       }, { merge: true });
       console.log("User data saved successfully");
     } catch (error) {
@@ -359,12 +371,12 @@ export default function ImageGenerator() {
     document.body.classList.toggle('dark');
   };
 
-  const handleCanvasMouseDown = (event) => {
+  const handleCanvasInteraction = (event) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const scale = window.devicePixelRatio;
-    const x = (event.clientX - rect.left) * scale;
-    const y = (event.clientY - rect.top) * scale;
+    const x = ((event.clientX || event.touches[0].clientX) - rect.left) * scale;
+    const y = ((event.clientY ||   event.touches[0].clientY) - rect.top) * scale;
 
     const clickedImageIndex = overlayImages.findIndex(img => 
       x >= img.x * scale && x <= (img.x + img.width) * scale &&
@@ -380,7 +392,6 @@ export default function ImageGenerator() {
       const edgeThreshold = 10 * scale;
       if (x >= (img.x + img.width) * scale - edgeThreshold && y >= (img.y + img.height) * scale - edgeThreshold) {
         setIsResizing(true);
-        
         setResizeHandle('bottomRight');
       }
     } else {
@@ -399,14 +410,14 @@ export default function ImageGenerator() {
     }
   };
 
-  const handleCanvasMouseMove = (event) => {
+  const handleCanvasMove = (event) => {
     if (!isMoving && !isResizing && !isMovingText) return;
 
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const scale = window.devicePixelRatio;
-    const x = (event.clientX - rect.left) * scale;
-    const y = (event.clientY - rect.top) * scale;
+    const x = ((event.clientX || event.touches[0].clientX) - rect.left) * scale;
+    const y = ((event.clientY || event.touches[0].clientY) - rect.top) * scale;
 
     if (isMoving) {
       const dx = (x - lastMousePosRef.current.x) / scale;
@@ -442,7 +453,7 @@ export default function ImageGenerator() {
     drawCanvas();
   };
 
-  const handleCanvasMouseUp = () => {
+  const handleCanvasEnd = () => {
     setIsMoving(false);
     setIsResizing(false);
     setIsMovingText(false);
@@ -682,10 +693,13 @@ export default function ImageGenerator() {
         <div className="canvas-container" ref={canvasContainerRef}>
           <canvas 
             ref={canvasRef}
-            onMouseDown={handleCanvasMouseDown}
-            onMouseMove={handleCanvasMouseMove}
-            onMouseUp={handleCanvasMouseUp}
-            onMouseLeave={handleCanvasMouseUp}
+            onMouseDown={handleCanvasInteraction}
+            onMouseMove={handleCanvasMove}
+            onMouseUp={handleCanvasEnd}
+            onMouseLeave={handleCanvasEnd}
+            onTouchStart={handleCanvasInteraction}
+            onTouchMove={handleCanvasMove}
+            onTouchEnd={handleCanvasEnd}
           />
           <div className="zoom-controls">
             <button onClick={() => setZoom(Math.max(zoom - 10, 10))}>
@@ -701,7 +715,7 @@ export default function ImageGenerator() {
           <p>AI Credits: {aiCredits}</p>
           <p>Download Credits: {downloadCredits}</p>
           {nextResetTime && (
-            <p>Next reset: {nextResetTime.toLocaleString()}</p>
+            <p>Next reset: {new Date(nextResetTime).toLocaleString()}</p>
           )}
         </div>
       </main>
