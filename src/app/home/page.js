@@ -71,7 +71,7 @@ export default function ImageGenerator() {
 
   const fetchWorldTime = async () => {
     try {
-      const response = await fetch('http://worldtimeapi.org/api/ip');
+      const response = await fetch('https://worldtimeapi.org/api/ip');
       const data = await response.json();
       return data;
     } catch (error) {
