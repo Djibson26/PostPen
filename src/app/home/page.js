@@ -69,79 +69,112 @@ export default function ImageGenerator() {
     return () => unsubscribe();
   }, []);
 
-  const fetchUserCredits = async (userId) => {
-    const userDoc = await getDoc(doc(db, "users", userId));
+// Function to fetch server time from the World Time API
+const fetchServerTime = async () => {
+  const response = await fetch("http://worldtimeapi.org/api/ip");
+  const data = await response.json();
+  return new Date(data.utc_datetime); // UTC time
+};
 
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
+// Function to fetch user credits
+const fetchUserCredits = async (userId) => {
+  const userDoc = await getDoc(doc(db, "users", userId));
 
-      // Use server-side timestamp for comparison
-      const now = new Date();
-      const lastResetTime = userData.lastResetTime?.toDate() || new Date(0);
-      const nextResetTime = new Date(lastResetTime.getTime() + 24 * 60 * 60 * 1000); // 24 hours later
+  if (userDoc.exists()) {
+    const userData = userDoc.data();
 
-      setAiCredits(userData.aiCredits || 5);
-      setDownloadCredits(userData.downloadCredits || 5);
-      setNextResetTime(nextResetTime);
+    // Use server-side timestamp for comparison
+    const now = await fetchServerTime(); // Fetch server time
+    const lastResetTime = userData.lastResetTime?.toDate() || new Date(0);
+    const nextResetTime = new Date(lastResetTime.getTime() + 24 * 60 * 60 * 1000); // 24 hours later
 
-      if (now >= nextResetTime) {
-        // Reset credits if the reset time has passed
-        await resetUserCredits(userId);
-      }
-    } else {
-      // If it's a new user, initialize their credits
-      await initializeUserCredits(userId);
+    // Set credits and next reset time
+    setAiCredits(userData.aiCredits || 5);
+    setDownloadCredits(userData.downloadCredits || 5);
+    setNextResetTime(nextResetTime);
+
+    if (now >= nextResetTime) {
+      // Reset credits if the reset time has passed
+      await resetUserCredits(userId);
     }
+  } else {
+    // If it's a new user, initialize their credits
+    await initializeUserCredits(userId);
+  }
+};
+
+// Function to reset user credits
+const resetUserCredits = async (userId) => {
+  const userRef = doc(db, "users", userId);
+  
+  // Fetch server time before resetting credits
+  const serverTime = await fetchServerTime();
+
+  const resetData = {
+    aiCredits: 5,
+    downloadCredits: 5,
+    lastResetTime: serverTimestamp(), // Keep this for Firestore
   };
 
-  const resetUserCredits = async (userId) => {
-    const userRef = doc(db, "users", userId);
+  // Update Firestore with new credits and last reset time
+  await updateDoc(userRef, resetData);
 
-    const resetData = {
-      aiCredits: 5,
-      downloadCredits: 5,
-      lastResetTime: serverTimestamp(),
-    };
+  setAiCredits(resetData.aiCredits);
+  setDownloadCredits(resetData.downloadCredits);
+  
+  // Calculate the next reset time based on server time
+  const nextResetTime = new Date(serverTime.getTime() + 24 * 60 * 60 * 1000);
+  setNextResetTime(nextResetTime);
+};
 
-    await updateDoc(userRef, resetData);
-
-    setAiCredits(resetData.aiCredits);
-    setDownloadCredits(resetData.downloadCredits);
-    setNextResetTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
+// Function to initialize user credits
+const initializeUserCredits = async (userId) => {
+  const initialCredits = {
+    aiCredits: 5,
+    downloadCredits: 5,
+    lastResetTime: serverTimestamp(), // Keep this for Firestore
   };
 
-  const initializeUserCredits = async (userId) => {
-    const initialCredits = {
-      aiCredits: 5,
-      downloadCredits: 5,
-      lastResetTime: serverTimestamp(),
-    };
+  // Fetch server time when initializing
+  const serverTime = await fetchServerTime();
 
-    await setDoc(doc(db, "users", userId), initialCredits);
-    setAiCredits(initialCredits.aiCredits);
-    setDownloadCredits(initialCredits.downloadCredits);
-    setNextResetTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
-  };
+  await setDoc(doc(db, "users", userId), initialCredits);
+  setAiCredits(initialCredits.aiCredits);
+  setDownloadCredits(initialCredits.downloadCredits);
+  
+  // Set the next reset time based on server time
+  const nextResetTime = new Date(serverTime.getTime() + 24 * 60 * 60 * 1000);
+  setNextResetTime(nextResetTime);
+};
 
-  const updateUserCredits = async (newAiCredits, newDownloadCredits) => {
-    if (!user) return;
+// Function to update user credits
+const updateUserCredits = async (userId, newAiCredits, newDownloadCredits) => {
+  if (!userId) return;
 
-    const userRef = doc(db, "users", user.uid);
+  const userRef = doc(db, "users", userId);
+  
+  try {
+    // Fetch server time before updating credits
+    const serverTime = await fetchServerTime();
+
+    await updateDoc(userRef, {
+      aiCredits: newAiCredits,
+      downloadCredits: newDownloadCredits,
+      lastUpdateTime: serverTimestamp(), // Keep this for Firestore
+    });
+
+    setAiCredits(newAiCredits);
+    setDownloadCredits(newDownloadCredits);
     
-    try {
-      await updateDoc(userRef, {
-        aiCredits: newAiCredits,
-        downloadCredits: newDownloadCredits,
-        lastUpdateTime: serverTimestamp(),
-      });
+    // Update the next reset time if necessary
+    const nextResetTime = new Date(serverTime.getTime() + 24 * 60 * 60 * 1000);
+    setNextResetTime(nextResetTime);
+  } catch (error) {
+    console.error("Error updating credits:", error);
+    alert("Failed to update credits. Please try again.");
+  }
+};
 
-      setAiCredits(newAiCredits);
-      setDownloadCredits(newDownloadCredits);
-    } catch (error) {
-      console.error("Error updating credits:", error);
-      alert("Failed to update credits. Please try again.");
-    }
-  };
 
   const handleInputChange = (key, value) => {
     setFormState((prev) => ({ ...prev, [key]: value }));
