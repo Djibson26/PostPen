@@ -791,7 +791,7 @@ export default function ImageGenerator() {
             </button>
           ) : (
             <button onClick={() => alert("Please log in to download images")}>
-              <LogIn size={18} />
+              <Download size={18} />
             </button>
           )}
           <button onClick={toggleDarkMode}>
@@ -973,10 +973,17 @@ export default function ImageGenerator() {
             <>
               <p>Name: {user.displayName}</p>
               <p>Email: {user.email}</p>
-              <button className="sidebar-button" onClick={handleLogout}>Logout</button>
+              <button className="sidebar-button" onClick={handleLogout}>
+              <LogOut size={18} />
+
+              </button>
             </>
           ) : (
-            <button className="sidebar-button" onClick={handleLogin}>Login</button>
+              
+           
+              <button className="sidebar-button" onClick={handleLogin}>
+                   <LogIn size={18} />
+                 </button>
           )}
         </div>
       </div>
