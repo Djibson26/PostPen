@@ -136,8 +136,8 @@ export default function LandingPage() {
     return (
         <div style={baseStyles}>
             <Head>
-                <title>PostPen</title>
-                <meta name="description" content="Ai text on image generator." />
+                <title>PostPen</title>Ai text on image generator.
+                <meta name="description" content="" />
                 <meta property="og:title" content="PostPen" />
                 <meta property="og:description" content="" />
                 <meta property="og:image" content="https://i.postimg.cc/W2923hTN/Capture-d-cran-1023.png" />
