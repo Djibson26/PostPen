@@ -1,12 +1,12 @@
-"use client";
+'use client'
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { auth } from '../../lib/firebaseConfig';
 import { getStorage, ref, uploadString, getDownloadURL } from "firebase/storage";
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
-import { Download, Sun, Moon, Minus, Plus, Type, Pen, Palette, Image as ImageIcon, Send } from 'lucide-react';
+import { onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { Download, Sun, Moon, Minus, Plus, Type, Pen, Palette, Image as ImageIcon, Send, LogIn, LogOut, X } from 'lucide-react';
 
 // Initialize the Gemini API
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY);
@@ -17,7 +17,7 @@ const db = getFirestore();
 
 export default function ImageGenerator() {
   const [formState, setFormState] = useState({
-    text: 'Enter your text here',
+    text: '🌟Let’s make your post \n more engaging!🚀',
     backgroundColor: 'black',
     fontColor: 'white',
     fontSize: 24,
@@ -49,6 +49,7 @@ export default function ImageGenerator() {
   const [aiCredits, setAiCredits] = useState(5);
   const [downloadCredits, setDownloadCredits] = useState(5);
   const [nextResetTime, setNextResetTime] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const canvasRef = useRef(null);
   const canvasContainerRef = useRef(null);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
@@ -63,6 +64,7 @@ export default function ImageGenerator() {
         setAiCredits(5);
         setDownloadCredits(5);
         setNextResetTime(null);
+        setFormState(prev => ({ ...prev, text: '🌟 Ready to elevate your post? Let’s make it more engaging! 🚀' }));
       }
     });
 
@@ -167,6 +169,7 @@ export default function ImageGenerator() {
   };
 
   const handleInputChange = (key, value) => {
+    if (!user) return;
     setFormState((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -203,7 +206,7 @@ export default function ImageGenerator() {
   };
 
   const handleAITextGeneration = async () => {
-    if (!aiPrompt || aiCredits <= 0) return;
+    if (!user || !aiPrompt || aiCredits <= 0) return;
     setIsGeneratingText(true);
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-pro" });
@@ -245,7 +248,7 @@ export default function ImageGenerator() {
 
       // Trigger download
       const link = document.createElement('a');
-      link.href = downloadURL;
+      link.href = imageDataUrl; // Use the canvas data URL directly
       link.download = `generated-image-${timestamp}.png`;
       document.body.appendChild(link);
       link.click();
@@ -371,12 +374,14 @@ export default function ImageGenerator() {
     document.body.classList.toggle('dark');
   };
 
-  const handleCanvasInteraction = (event) => {
+  const  handleCanvasInteraction = (event) => {
+    if (!user) return;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
+    
     const scale = window.devicePixelRatio;
     const x = ((event.clientX || event.touches[0].clientX) - rect.left) * scale;
-    const y = ((event.clientY ||   event.touches[0].clientY) - rect.top) * scale;
+    const y = ((event.clientY || event.touches[0].clientY) - rect.top) * scale;
 
     const clickedImageIndex = overlayImages.findIndex(img => 
       x >= img.x * scale && x <= (img.x + img.width) * scale &&
@@ -411,7 +416,7 @@ export default function ImageGenerator() {
   };
 
   const handleCanvasMove = (event) => {
-    if (!isMoving && !isResizing && !isMovingText) return;
+    if (!user || (!isMoving && !isResizing && !isMovingText)) return;
 
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -463,6 +468,37 @@ export default function ImageGenerator() {
   const toggleSection = (section) => {
     setActiveSection(activeSection === section ? null : section);
   };
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+      setIsSidebarOpen(false);
+    } catch (error) {
+      console.error("Error signing out: ", error);
+    }
+  };
+
+  const handleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      console.log('User signed in:', result.user);
+      setUser(result.user);
+      setIsSidebarOpen(false);
+      // Fetch user credits after successful login
+      await fetchUserCredits(result.user.uid);
+    } catch (error) {
+      console.error('Error during Google sign-in:', error.message);
+      alert('Failed to sign in. Please try again.');
+    }
+  };
+  
+  
 
   return (
     <div className={`container ${isDarkMode ? 'dark' : 'light'}`}>
@@ -669,6 +705,69 @@ export default function ImageGenerator() {
           margin-top: 20px;
           text-align: center;
         }
+        .light .profile-button{
+          background-color: white;
+          color: black;
+        }
+        .profile-button {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          background-color: #D2A76A;
+          color: black;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: bold;
+          cursor: pointer;
+        }
+        .sidebar {
+          position: fixed;
+          top: 0;
+          right: ${isSidebarOpen ? '0' : '-500px'};
+          width: 300px;
+          height: 100%;
+          background-color: #ffffff;
+          box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
+          transition: right 0.3s ease-in-out;
+          z-index: 1001;
+          padding: 20px;
+        }
+        .dark .sidebar {
+          background-color: #1a1a1a;
+          color: #e2e8f0;
+        }
+        .sidebar-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
+        }
+        .sidebar-content {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .dark .sidebar-button{
+            color: black;
+        }
+        .sidebar-button {
+          padding: 10px;
+          border: none;
+          border-radius: 5px;
+          background-color: #D2A76A;
+          color: white;
+          cursor: pointer;
+          transition: background-color 0.3s;
+        }
+        .sidebar-button:hover {
+          background-color: #b88e59;
+        }
+        .light .section-content Button{
+         
+          background-color: #D2A76A;
+          color: black;
+        }
         @media (max-width: 768px) {
           .header-buttons {
             flex-wrap: wrap;
@@ -686,12 +785,21 @@ export default function ImageGenerator() {
           <h1 className='app_name'>PostPen</h1>
         </div>
         <div className="header-buttons">
-          <button onClick={uploadAndDownloadImage} disabled={isGenerating || !user || downloadCredits <= 0}>
-            <Download size={18} />
-          </button>
+          {user ? (
+            <button onClick={uploadAndDownloadImage} disabled={isGenerating || downloadCredits <= 0}>
+              <Download size={18} />
+            </button>
+          ) : (
+            <button onClick={() => alert("Please log in to download images")}>
+              <LogIn size={18} />
+            </button>
+          )}
           <button onClick={toggleDarkMode}>
             {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
           </button>
+          <div className="profile-button" onClick={toggleSidebar}>
+            {user ? user.displayName.charAt(0).toUpperCase() : '?'}
+          </div>
         </div>
       </header>
       <main>
@@ -716,13 +824,15 @@ export default function ImageGenerator() {
             </button>
           </div>
         </div>
-        <div className="credits-info">
-          <p>AI Credits: {aiCredits}</p>
-          <p>Download Credits: {downloadCredits}</p>
-          {nextResetTime && (
-            <p>Next reset: {new Date(nextResetTime).toLocaleString()}</p>
-          )}
-        </div>
+        {user && (
+          <div className="credits-info">
+            <p>AI Credits: {aiCredits}</p>
+            <p>Download Credits: {downloadCredits}</p>
+            {nextResetTime && (
+              <p>Next reset: {new Date(nextResetTime).toLocaleString()}</p>
+            )}
+          </div>
+        )}
       </main>
       <div className="bottom-toolbar">
         <button onClick={() => toggleSection('text')}>
@@ -744,16 +854,18 @@ export default function ImageGenerator() {
           <textarea
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
-            placeholder="Enter prompt for AI text generation..."
+            placeholder={user ? "Enter prompt for AI text generation..." : "🌟 Ready to elevate your post? Let’s make it more engaging! 🚀"}
+            disabled={!user}
           />
-          <button onClick={handleAITextGeneration} disabled={isGeneratingText || aiCredits <= 0}>
+          <button onClick={handleAITextGeneration} disabled={isGeneratingText || aiCredits <= 0 || !user}>
             <Send size={18} />
-            {isGeneratingText ? 'Generating...' : ''}
+            {isGeneratingText ?  'Generating...' : ''}
           </button>
           <textarea
             value={formState.text}
             onChange={(e) => handleInputChange('text', e.target.value)}
-            placeholder="Edit generated text here..."
+            placeholder={user ? "Edit generated text here..." : "Please log in to edit text"}
+            disabled={!user}
           />
         </div>
       )}
@@ -764,19 +876,21 @@ export default function ImageGenerator() {
             accept="image/*"
             onChange={handleImageUpload}
             id="image-upload"
+            disabled={!user}
           />
-          <label htmlFor="image-upload">Upload Image</label>
+          <label htmlFor="image-upload">{user ? "Upload Image" : "Log in to upload images"}</label>
           {overlayImages.map((img, index) => (
             <div key={index} className="overlay-image-control">
               <span>Image {index + 1}</span>
               <select
                 value={img.shape}
                 onChange={(e) => updateOverlayImage(index, { shape: e.target.value })}
+                disabled={!user}
               >
                 <option value="rectangle">Rectangle</option>
                 <option value="circle">Circle</option>
               </select>
-              <button onClick={() => deleteOverlayImage(index)}>
+              <button onClick={() => deleteOverlayImage(index)} disabled={!user}>
                 <Minus size={18} />
               </button>
             </div>
@@ -788,6 +902,7 @@ export default function ImageGenerator() {
           <select
             value={formState.fontFamily}
             onChange={(e) => handleInputChange('fontFamily', e.target.value)}
+            disabled={!user}
           >
             <option value="Inter">Inter</option>
             <option value="Roboto">Roboto</option>
@@ -801,6 +916,7 @@ export default function ImageGenerator() {
             max="100"
             value={formState.fontSize}
             onChange={(e) => handleInputChange('fontSize', Number(e.target.value))}
+            disabled={!user}
           />
           <span>{formState.fontSize}px</span>
         </div>
@@ -813,6 +929,7 @@ export default function ImageGenerator() {
               type="color"
               value={formState.backgroundColor}
               onChange={(e) => handleInputChange('backgroundColor', e.target.value)}
+              disabled={!user}
             />
           </label>
           <label>
@@ -821,6 +938,7 @@ export default function ImageGenerator() {
               type="color"
               value={formState.fontColor}
               onChange={(e) => handleInputChange('fontColor', e.target.value)}
+              disabled={!user}
             />
           </label>
           <label>
@@ -829,6 +947,7 @@ export default function ImageGenerator() {
               type="color"
               value={formState.gradientStart}
               onChange={(e) => handleInputChange('gradientStart', e.target.value)}
+              disabled={!user}
             />
           </label>
           <label>
@@ -837,10 +956,30 @@ export default function ImageGenerator() {
               type="color"
               value={formState.gradientEnd}
               onChange={(e) => handleInputChange('gradientEnd', e.target.value)}
+              disabled={!user}
             />
           </label>
         </div>
       )}
+      <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
+        <div className="sidebar-header">
+          <h2>Profile</h2>
+          <button onClick={toggleSidebar}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="sidebar-content">
+          {user ? (
+            <>
+              <p>Name: {user.displayName}</p>
+              <p>Email: {user.email}</p>
+              <button className="sidebar-button" onClick={handleLogout}>Logout</button>
+            </>
+          ) : (
+            <button className="sidebar-button" onClick={handleLogin}>Login</button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
