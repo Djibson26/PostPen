@@ -1,5 +1,4 @@
 // app/layout.js
-
 export const metadata = {
   title: 'PostPen', // Adjust this as necessary
   description: 'Ai text on image generator.',
