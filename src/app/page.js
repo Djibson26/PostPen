@@ -108,14 +108,14 @@ export default function LandingPage() {
 
     const heroContentStyles = {
         flex: '1',
-        minWidth: isMobile ? '100%' : '300px',
+        minWidth: isMobile ? '70%' : '300px',
         marginRight: isMobile ? '0' : '2rem',
         marginBottom: isMobile ? '1rem' : '0',
     };
 
     const heroImageStyles = {
         flex: '1',
-        minWidth: isMobile ? '100%' : '300px',
+        minWidth: isMobile ? '70%' : '300px',
     };
 
     const featureSectionStyles = {
@@ -130,7 +130,7 @@ export default function LandingPage() {
 
     const featureItemStyles = {
         flex: '1',
-        minWidth: isMobile ? '100%' : '200px',
+        minWidth: isMobile ? '70%' : '200px',
         maxWidth: '250px',
         margin: '1rem',
         padding: '1.5rem',
@@ -206,12 +206,13 @@ export default function LandingPage() {
             <main style={mainStyles}>
                 <section style={heroSectionStyles}>
                     <div style={heroContentStyles}>
-                        <h2 style={{ fontSize: isMobile ? '2rem' : '2.5rem', marginBottom: '1rem', color: shinyBronze }}>
-                            Transform Your Ideas into Visuals
-                        </h2>
-                        <p style={{ marginBottom: '1.5rem', fontSize: isMobile ? '1rem' : '1.1rem', color: '#e0e0e0' }}>
-                            ImagePost empowers you to create eye-catching images for social media, presentations, or any digital content. No design skills required!
-                        </p>
+                    <h2 style={{ fontSize: isMobile ? '2rem' : '2.5rem', marginBottom: '1rem', color: shinyBronze }}>
+                                    Turn Words into Stunning Visuals Instantly
+                                </h2>
+                                <p style={{ marginBottom: '1.5rem', fontSize: isMobile ? '1rem' : '1.1rem', color: '#e0e0e0' }}>
+                                    With PostPen, effortlessly create captivating visuals for social media, presentations, and more—no design skills needed!
+                                </p>
+
                         <button
                             style={buttonStyles}
                             onMouseOver={(e) => e.target.style.backgroundColor = shinyBronzeHover}
@@ -222,8 +223,8 @@ export default function LandingPage() {
                         </button>
                     </div>
                     <div style={heroImageStyles}>
-                        <img src="/placeholder.png" alt="ImagePost App Interface" style={{
-                            maxWidth: '100%',
+                        <img src="/p.jpg" alt="ImagePost App Interface" style={{
+                            maxWidth: '80%',
                             height: 'auto',
                             borderRadius: '8px',
                             boxShadow: '0 4px 8px rgba(255,255,255,0.1)',
@@ -234,41 +235,14 @@ export default function LandingPage() {
                 <section style={featureSectionStyles}>
                     <h2 style={{ fontSize: isMobile ? '1.8rem' : '2rem', textAlign: 'center', marginBottom: '2rem', color: shinyBronze }}>Features that Empower You</h2>
                     <div style={featureGridStyles}>
-                        {[{ title: 'Custom Text', icon: '✍️', description: 'Add your message with various fonts and sizes' },
+                        {[{ title: 'Ai text generation', icon: '✍️🤖', description: 'Empower your message with the magic of AI!'},
                         { title: 'Color Control', icon: '🎨', description: 'Choose perfect background and text colors' },
                         { title: 'Image Overlay', icon: '🖼️', description: 'Upload and overlay your own images' },
-                        { title: 'One-Click Share', icon: '🚀', description: 'Share directly to social media platforms' },
-                        ].map((feature, index) => (
+                       ].map((feature, index) => (
                             <div key={index} style={featureItemStyles}>
                                 <div style={{ fontSize: '3rem', marginBottom: '1rem' }} aria-hidden="true">{feature.icon}</div>
                                 <h3 style={{ fontSize: '1.2rem', marginBottom: '0.5rem', color: shinyBronze }}>{feature.title}</h3>
                                 <p style={{ color: '#e0e0e0' }}>{feature.description}</p>
-                            </div>
-                        ))} 
-                    </div>
-                </section>
-
-                <section style={pricingSectionStyles}>
-                    <h2 style={{ fontSize: isMobile ? '1.8rem' : '2rem', textAlign: 'center', marginBottom: '2rem', color: shinyBronze }}>Affordable Pricing Plans</h2>
-                    <div style={pricingGridStyles}>
-                        {[{ name: 'Starter', price: '$5/month', features: ['5 image generations', 'Basic customization'] },
-                        { name: 'Pro', price: '$15/month', features: ['Unlimited generations', 'Advanced customization', 'Priority support'] }
-                        ].map((plan, index) => (
-                            <div key={index} style={pricingItemStyles}>
-                                <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: shinyBronze }}>{plan.name}</h3>
-                                <p style={{ fontSize: '1.2rem', color: '#e0e0e0' }}>{plan.price}</p>
-                                <ul style={{ listStyle: 'none', padding: 0 }}>
-                                    {plan.features.map((feature, i) => (
-                                        <li key={i} style={{ color: '#e0e0e0', marginBottom: '0.5rem' }}>{feature}</li>
-                                    ))}
-                                </ul>
-                                <button
-                                    style={buttonStyles}
-                                    onMouseOver={(e) => e.target.style.backgroundColor = shinyBronzeHover}
-                                    onMouseOut={(e) => e.target.style.backgroundColor = shinyBronze}
-                                >
-                                    Choose {plan.name}
-                                </button>
                             </div>
                         ))} 
                     </div>

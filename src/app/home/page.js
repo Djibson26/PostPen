@@ -516,6 +516,11 @@ export default function ImageGenerator() {
           background-color: #f0f0f0;
           color: black;
         }
+        .light h1 {
+          font-size: 24px;
+          margin: 0;
+          color: white;
+        }
         .dark header {
           background-color: #1a1a1a;
         }
