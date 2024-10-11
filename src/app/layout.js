@@ -1,8 +1,9 @@
 // app/layout.js
 
 export const metadata = {
-  title: 'ImagePost', // Adjust this as necessary
-  description: 'Your image generation SaaS',
+  title: 'PostPen', // Adjust this as necessary
+  description: 'Ai text on image generator.',
+  content: 'https://i.postimg.cc/W2923hTN/Capture-d-cran-1023.png',
 };
 
 export default function RootLayout({ children }) {
