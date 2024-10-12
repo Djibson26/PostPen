@@ -4,9 +4,10 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { auth } from '../../lib/firebaseConfig';
 import { getStorage, ref, uploadString, getDownloadURL } from "firebase/storage";
-import { getFirestore, doc, setDoc, getDoc, updateDoc } from "firebase/firestore";
-import { onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { Download, Sun, Moon, Minus, Plus, Type, Pen, Palette, Image as ImageIcon, Send, LogIn, LogOut, X } from 'lucide-react';
+import { getFirestore, doc, setDoc } from "firebase/firestore";
+import { onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, getRedirectResult, signInWithRedirect } from "firebase/auth";
+import { Download, Sun, Moon, Type, Upload, Palette, Paperclip, Image as ImageIcon, Send, LogIn, LogOut, X, Smile, AlignLeft, AlignCenter, AlignRight, Pen, Cpu } from 'lucide-react';
+import EmojiPicker from 'emoji-picker-react';
 
 // Initialize the Gemini API
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY);
@@ -17,13 +18,13 @@ const db = getFirestore();
 
 export default function ImageGenerator() {
   const [formState, setFormState] = useState({
-    text: '🌟Let’s make your post \n more engaging!🚀',
+    text: "🌟Let's make your post  more engaging!🚀",
     backgroundColor: 'black',
     fontColor: 'white',
-    fontSize: 24,
+    fontSize: 30,
     fontFamily: 'Inter',
-    textX: 50,
-    textY: 50,
+    textX: 0,
+    textY: 210,
     lineHeight: 1.2,
     maxWidth: 90,
     textAlign: 'center',
@@ -33,9 +34,7 @@ export default function ImageGenerator() {
     gradientEnd: 'white',
   });
   const [overlayImages, setOverlayImages] = useState([]);
-  const [imageUrl, setImageUrl] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [zoom, setZoom] = useState(100);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [selectedImage, setSelectedImage] = useState(null);
   const [isMoving, setIsMoving] = useState(false);
@@ -43,130 +42,51 @@ export default function ImageGenerator() {
   const [resizeHandle, setResizeHandle] = useState(null);
   const [isMovingText, setIsMovingText] = useState(false);
   const [activeSection, setActiveSection] = useState(null);
-  const [aiPrompt, setAiPrompt] = useState('');
   const [isGeneratingText, setIsGeneratingText] = useState(false);
   const [user, setUser] = useState(null);
-  const [aiCredits, setAiCredits] = useState(5);
-  const [downloadCredits, setDownloadCredits] = useState(5);
-  const [nextResetTime, setNextResetTime] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [authError, setAuthError] = useState(null);
   const canvasRef = useRef(null);
   const canvasContainerRef = useRef(null);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
+  const [inputText, setInputText] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isAIMode, setIsAIMode] = useState(true);
+  const textareaRef = useRef(null);
+  const [textContainerSize, setTextContainerSize] = useState({ width: 300, height: 100 });
+  const [isEditingText, setIsEditingText] = useState(false);
+  const [isEditingImage, setIsEditingImage] = useState(false);
+  const longPressTimeoutRef = useRef(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        fetchUserCredits(currentUser.uid);
-      } else {
-        setUser(null);
-        setAiCredits(5);
-        setDownloadCredits(5);
-        setNextResetTime(null);
-        setFormState(prev => ({ ...prev, text: '🌟 Ready to elevate your post? Let’s make it more engaging! 🚀' }));
-      }
-    });
+    const initializeAuth = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          setUser(result.user);
+        }
 
-    return () => unsubscribe();
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+          setUser(currentUser);
+          setAuthError(null);
+        });
+
+        return () => unsubscribe();
+      } catch (error) {
+        console.error('Error during auth initialization:', error);
+        setAuthError('An error occurred during authentication. Please try again.');
+      }
+    };
+
+    initializeAuth();
   }, []);
 
-  const fetchWorldTime = async () => {
-    try {
-      const response = await fetch('https://worldtimeapi.org/api/ip');
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('Error fetching world time:', error);
-      throw new Error('Failed to fetch world time');
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
-  };
-
-  const calculateNextResetTime = (currentTime) => {
-    const nextDay = new Date(currentTime.datetime);
-    nextDay.setDate(nextDay.getDate() + 1);
-    nextDay.setHours(0, 0, 0, 0);
-    return nextDay.toISOString();
-  };
-
-  const fetchUserCredits = async (userId) => {
-    const userDoc = await getDoc(doc(db, "users", userId));
-    const worldTime = await fetchWorldTime();
-
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
-      const lastResetTime = userData.lastResetTime?.seconds * 1000 || 0;
-      const nextResetTime = calculateNextResetTime(worldTime);
-
-      setAiCredits(userData.aiCredits || 5);
-      setDownloadCredits(userData.downloadCredits || 5);
-      setNextResetTime(nextResetTime);
-
-      if (new Date(worldTime.datetime) >= new Date(nextResetTime)) {
-        // Reset credits if the reset time has passed
-        await resetUserCredits(userId);
-      }
-    } else {
-      // If it's a new user, initialize their credits
-      await initializeUserCredits(userId);
-    }
-  };
-
-  const resetUserCredits = async (userId) => {
-    const userRef = doc(db, "users", userId);
-    const worldTime = await fetchWorldTime();
-    const nextResetTime = calculateNextResetTime(worldTime);
-
-    const resetData = {
-      aiCredits: 5,
-      downloadCredits: 5,
-      lastResetTime: { seconds: worldTime.unixtime, nanoseconds: 0 },
-      nextResetTime: nextResetTime,
-    };
-
-    await updateDoc(userRef, resetData);
-
-    setAiCredits(resetData.aiCredits);
-    setDownloadCredits(resetData.downloadCredits);
-    setNextResetTime(nextResetTime);
-  };
-
-  const initializeUserCredits = async (userId) => {
-    const worldTime = await fetchWorldTime();
-    const nextResetTime = calculateNextResetTime(worldTime);
-    const initialCredits = {
-      aiCredits: 5,
-      downloadCredits: 5,
-      lastResetTime: { seconds: worldTime.unixtime, nanoseconds: 0 },
-      nextResetTime: nextResetTime,
-    };
-
-    await setDoc(doc(db, "users", userId), initialCredits);
-    setAiCredits(initialCredits.aiCredits);
-    setDownloadCredits(initialCredits.downloadCredits);
-    setNextResetTime(nextResetTime);
-  };
-
-  const updateUserCredits = async (newAiCredits, newDownloadCredits) => {
-    if (!user) return;
-
-    const userRef = doc(db, "users", user.uid);
-    const worldTime = await fetchWorldTime();
-    
-    try {
-      await updateDoc(userRef, {
-        aiCredits: newAiCredits,
-        downloadCredits: newDownloadCredits,
-        lastUpdateTime: { seconds: worldTime.unixtime, nanoseconds: 0 },
-      });
-
-      setAiCredits(newAiCredits);
-      setDownloadCredits(newDownloadCredits);
-    } catch (error) {
-      console.error("Error updating credits:", error);
-      alert("Failed to update credits. Please try again.");
-    }
-  };
+  }, [inputText]);
 
   const handleInputChange = (key, value) => {
     if (!user) return;
@@ -193,7 +113,7 @@ export default function ImageGenerator() {
   }, []);
 
   const updateOverlayImage = (index, updates) => {
-    setOverlayImages((prev) => prev.map((img, i) => 
+    setOverlayImages((prev) => prev.map((img, i) =>
       i === index ? { ...img, ...updates } : img
     ));
   };
@@ -205,16 +125,18 @@ export default function ImageGenerator() {
     }
   };
 
-  const handleAITextGeneration = async () => {
-    if (!user || !aiPrompt || aiCredits <= 0) return;
+  const handleAITextGeneration = async (prompt) => {
+    if (!user || !prompt.trim()) return;
     setIsGeneratingText(true);
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-      const result = await model.generateContent(aiPrompt);
+      const basePrompt = "Generate a short, engaging text between 1 to 3 lines based on the following prompt. Keep it concise and impactful: ";
+      const result = await model.generateContent(basePrompt + prompt);
       const response = await result.response;
       const generatedText = response.text();
       setFormState(prev => ({ ...prev, text: generatedText }));
-      await updateUserCredits(aiCredits - 1, downloadCredits);
+      setInputText('');
+      drawCanvas();
     } catch (error) {
       console.error('Text generation failed:', error);
       alert('Failed to generate text. Please try again.');
@@ -224,8 +146,8 @@ export default function ImageGenerator() {
   };
 
   const uploadAndDownloadImage = async () => {
-    if (!user || downloadCredits <= 0) {
-      alert("You don't have enough credits or you're not logged in.");
+    if (!user) {
+      alert("You need to be logged in to download images.");
       return;
     }
 
@@ -234,27 +156,20 @@ export default function ImageGenerator() {
       const canvas = canvasRef.current;
       const imageDataUrl = canvas.toDataURL('image/png');
 
-      const worldTime = await fetchWorldTime();
-      const timestamp = worldTime.unixtime;
-
-      // Upload to Firebase Storage
+      const timestamp = Date.now();
       const folderPath = `images/${user.uid}`;
       const storageRef = ref(storage, `${folderPath}/${timestamp}.png`);
       const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
       const downloadURL = await getDownloadURL(snapshot.ref);
 
-      // Save user data to Firestore
       await saveUserDataToFirestore(downloadURL, folderPath, timestamp);
 
-      // Trigger download
       const link = document.createElement('a');
-      link.href = imageDataUrl; // Use the canvas data URL directly
+      link.href = imageDataUrl;
       link.download = `generated-image-${timestamp}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
-      await updateUserCredits(aiCredits, downloadCredits - 1);
 
       alert("Image generated, saved, and downloaded successfully!");
     } catch (error) {
@@ -277,45 +192,106 @@ export default function ImageGenerator() {
         email: user.email,
         lastGeneratedImage: imageUrl,
         imageFolderPath: folderPath,
-        timestamp: { seconds: timestamp, nanoseconds: 0 }
+        timestamp: new Date(timestamp)
       }, { merge: true });
       console.log("User data saved successfully");
     } catch (error) {
       console.error("Error saving user data: ", error);
     }
   };
-
   const drawTextWithEffects = (ctx, text, scale) => {
-    const lines = text.split('\n');
-    const lineHeight = formState.fontSize * formState.lineHeight * scale;
-    
+    const padding = 20 * scale; // Padding around the text
+    const containerWidth = canvasRef.current.width - padding * 2; // Maximum width of the text container
+  
     ctx.textAlign = formState.textAlign;
     ctx.font = `${formState.fontSize * scale}px ${formState.fontFamily}`;
     
-    const gradient = ctx.createLinearGradient(0, formState.textY * scale, 0, formState.textY * scale + lineHeight * lines.length);
-    gradient.addColorStop(0, formState.gradientStart);
-    gradient.addColorStop(1, formState.gradientEnd);
-
-    lines.forEach((line, index) => {
-      const yPos = formState.textY * scale + index * lineHeight;
-      let xPos;
-      if (formState.textAlign === 'center') {
-        xPos = ctx.canvas.width / 2;
-      } else if (formState.textAlign === 'right') {
-        xPos = ctx.canvas.width - formState.textX * scale;
-      } else {
-        xPos = formState.textX * scale;
-      }
-
-      if (formState.outlineWidth > 0) {
-        ctx.strokeStyle = formState.outlineColor;
-        ctx.lineWidth = formState.outlineWidth * scale;
-        ctx.strokeText(line, xPos, yPos);
-      }
-
-      ctx.fillStyle = gradient;
-      ctx.fillText(line, xPos, yPos);
+    // Split text by lines based on Enter key
+    const textLines = text.split('\n');
+    
+    let allLines = [];
+  
+    // Process each line (split by Enter key) individually for word wrapping
+    textLines.forEach((textLine) => {
+      const words = textLine.split(' ');
+      let line = '';
+      
+      words.forEach((word) => {
+        const testLine = line + word + ' ';
+        const metrics = ctx.measureText(testLine);
+        const testWidth = metrics.width;
+  
+        // If the testLine exceeds the container width, push the current line and start a new one
+        if (testWidth > containerWidth) {
+          allLines.push(line.trim());
+          line = word + ' ';
+        } else {
+          line = testLine;
+        }
+      });
+  
+      // Push the last processed line
+      allLines.push(line.trim());
     });
+  
+    // Calculate total text height
+    const totalHeight = allLines.length * formState.fontSize * formState.lineHeight * scale + padding * 2;
+  
+    // Set textContainerSize based on measured width and height
+    setTextContainerSize({
+      width: containerWidth / scale, // Based on the canvas width minus padding
+      height: totalHeight / scale
+    });
+  
+    // Draw the background rectangle (transparent here)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0)';
+    ctx.fillRect(formState.textX * scale, formState.textY * scale, textContainerSize.width * scale, textContainerSize.height * scale);
+  
+    // Draw each line of text
+    let y = formState.textY * scale + padding;
+    allLines.forEach((lineText) => {
+      drawLine(ctx, lineText, formState.textX * scale + padding, y, scale, containerWidth);
+      y += formState.fontSize * formState.lineHeight * scale;
+    });
+  };
+  
+  
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    ctx.font = `${formState.fontSize}px ${formState.fontFamily}`;
+    
+    const textMetrics = ctx.measureText(formState.text);
+    const padding = 20;
+    const width = textMetrics.width + padding * 2;
+    const height = formState.fontSize * formState.lineHeight + padding * 2;
+  
+    setTextContainerSize({ width, height });
+  }, [formState.text, formState.fontSize, formState.fontFamily, formState.lineHeight]);
+
+  useEffect(() => {
+    drawCanvas();
+  }, [textContainerSize, formState]);
+  
+  
+  const drawLine = (ctx, text, x, y, scale, maxWidth) => {
+    ctx.fillStyle = ctx.createLinearGradient(x, y - formState.fontSize * scale, x, y);
+    ctx.fillStyle.addColorStop(0, formState.gradientStart);
+    ctx.fillStyle.addColorStop(1, formState.gradientEnd);
+
+    if (formState.textAlign === 'center') {
+      x += maxWidth / 2;
+    } else if (formState.textAlign === 'right') {
+      x += maxWidth;
+    }
+
+    if (formState.outlineWidth > 0) {
+      ctx.strokeStyle = formState.outlineColor;
+      ctx.lineWidth = formState.outlineWidth * scale;
+      ctx.strokeText(text, x, y, maxWidth);
+    }
+
+    ctx.fillText(text, x, y, maxWidth);
   };
 
   const drawCanvas = useCallback(() => {
@@ -345,7 +321,7 @@ export default function ImageGenerator() {
     });
 
     drawTextWithEffects(ctx, formState.text, scale);
-  }, [formState, overlayImages, zoom]);
+  }, [formState, overlayImages, textContainerSize]);
 
   useEffect(() => {
     const resizeCanvas = () => {
@@ -374,24 +350,26 @@ export default function ImageGenerator() {
     document.body.classList.toggle('dark');
   };
 
-  const  handleCanvasInteraction = (event) => {
+  const handleCanvasInteraction = (event) => {
     if (!user) return;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    
+
     const scale = window.devicePixelRatio;
     const x = ((event.clientX || event.touches[0].clientX) - rect.left) * scale;
     const y = ((event.clientY || event.touches[0].clientY) - rect.top) * scale;
 
-    const clickedImageIndex = overlayImages.findIndex(img => 
+    const clickedImageIndex = overlayImages.findIndex(img =>
       x >= img.x * scale && x <= (img.x + img.width) * scale &&
       y >= img.y * scale && y <= (img.y + img.height) * scale
     );
 
     if (clickedImageIndex !== -1) {
       setSelectedImage(clickedImageIndex);
-      setIsMoving(true);
-      lastMousePosRef.current = { x, y };
+      longPressTimeoutRef.current = setTimeout(() => {
+        setIsMoving(true);
+        lastMousePosRef.current = { x, y };
+      }, 500);
 
       const img = overlayImages[clickedImageIndex];
       const edgeThreshold = 10 * scale;
@@ -402,13 +380,14 @@ export default function ImageGenerator() {
     } else {
       const textX = formState.textX * scale;
       const textY = formState.textY * scale;
-      const ctx = canvas.getContext('2d');
-      const textWidth = ctx.measureText(formState.text).width;
-      const textHeight = formState.fontSize * scale;
+      const textWidth = textContainerSize.width * scale;
+      const textHeight = textContainerSize.height * scale;
 
-      if (x >= textX && x <= textX + textWidth && y >= textY - textHeight && y <= textY) {
-        setIsMovingText(true);
-        lastMousePosRef.current = { x, y };
+      if  (x >= textX && x <= textX + textWidth && y >= textY && y <= textY + textHeight) {
+        longPressTimeoutRef.current = setTimeout(() => {
+          setIsMovingText(true);
+          lastMousePosRef.current = { x, y };
+        }, 500);
       } else {
         setSelectedImage(null);
       }
@@ -428,7 +407,7 @@ export default function ImageGenerator() {
       const dx = (x - lastMousePosRef.current.x) / scale;
       const dy = (y - lastMousePosRef.current.y) / scale;
 
-      updateOverlayImage(selectedImage, { 
+      updateOverlayImage(selectedImage, {
         x: overlayImages[selectedImage].x + dx,
         y: overlayImages[selectedImage].y + dy
       });
@@ -448,8 +427,8 @@ export default function ImageGenerator() {
 
       setFormState(prev => ({
         ...prev,
-        textX: Math.max(0, Math.min(canvas.width / scale, prev.textX + dx)),
-        textY: Math.max(prev.fontSize, Math.min(canvas.height / scale, prev.textY + dy))
+        textX: Math.max(0, Math.min(canvas.width / scale - textContainerSize.width, prev.textX + dx)),
+        textY: Math.max(0, Math.min(canvas.height / scale - textContainerSize.height, prev.textY + dy))
       }));
 
       lastMousePosRef.current = { x, y };
@@ -459,6 +438,12 @@ export default function ImageGenerator() {
   };
 
   const handleCanvasEnd = () => {
+    clearTimeout(longPressTimeoutRef.current);
+    if (isMoving || isResizing) {
+      setIsEditingImage(true);
+    } else if (isMovingText) {
+      setIsEditingText(true);
+    }
     setIsMoving(false);
     setIsResizing(false);
     setIsMovingText(false);
@@ -490,16 +475,68 @@ export default function ImageGenerator() {
       console.log('User signed in:', result.user);
       setUser(result.user);
       setIsSidebarOpen(false);
-      // Fetch user credits after successful login
-      await fetchUserCredits(result.user.uid);
-    } catch (error) {
-      console.error('Error during Google sign-in:', error.message);
-      alert('Failed to sign in. Please try again.');
+    } catch (popupError) {
+      console.error('Error during Google sign-in with popup:', popupError.message);
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (redirectError) {
+        console.error('Error during Google sign-in with redirect:', redirectError.message);
+        setAuthError('Failed to sign in. Please try again or check your browser settings.');
+      }
     }
   };
-  
-  
 
+  const handleInputSubmit = () => {
+    if (inputText.trim()) {
+      if (isAIMode) {
+        handleAITextGeneration(inputText);
+      } else {
+        setFormState(prev => ({ ...prev, text: inputText }));
+        drawCanvas();
+      }
+    }
+  };
+
+  const toggleAIMode = () => {
+    setIsAIMode(!isAIMode);
+    setInputText(isAIMode ? formState.text : '');
+  };
+
+  const handleClickOutside = (event) => {
+    if (activeSection && !event.target.closest('.section-content') && !event.target.closest('.options-button')) {
+      setActiveSection(null);
+    }
+    if (showEmojiPicker && !event.target.closest('.emoji-picker-container') && !event.target.closest('.emoji-button')) {
+      setShowEmojiPicker(false);
+    }
+  };
+
+  useEffect(() => {
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [activeSection, showEmojiPicker]);
+
+  const handleTextChange = (e) => {
+    const newText = e.target.value;
+    setInputText(newText);
+    if (!isAIMode) {
+      setFormState(prev => ({ ...prev, text: newText }));
+      drawCanvas();
+    }
+  };
+
+  const addEmoji = (emojiObject) => {
+    const emoji = emojiObject.emoji;
+    const newText = inputText + emoji;
+    setInputText(newText);
+    if (!isAIMode) {
+      setFormState(prev => ({ ...prev, text: newText }));
+      drawCanvas();
+    }
+    setShowEmojiPicker(false);
+  };
   return (
     <div className={`container ${isDarkMode ? 'dark' : 'light'}`}>
       <style jsx>{`
@@ -609,17 +646,10 @@ export default function ImageGenerator() {
           height: 100%;
           object-fit: contain;
         }
-        .zoom-controls {
-          position: absolute;
-          bottom: 10px;
-          right: 10px;
-          display: flex;
-          gap: 5px;
-          align-items: center;
-        }
         .bottom-toolbar {
           display: flex;
-          justify-content: space-around;
+          justify-content: space-between;
+          align-items: center;
           padding: 10px;
           background-color: #4a5568;
           position: fixed;
@@ -627,13 +657,67 @@ export default function ImageGenerator() {
           left: 0;
           right: 0;
           z-index: 1000;
-          height: 60px;
         }
         .dark .bottom-toolbar {
           background-color: #1a1a1a;
         }
         .light .bottom-toolbar {
           background-color: #D2A76A;
+        }
+        .input-container {
+          display: flex;
+          align-items: center;
+          background-color: white;
+          border-radius: 20px;
+          padding: 5px 10px;
+          flex-grow: 1;
+          margin-right: 10px;
+        }
+        .dark .input-container {
+          background-color: #333;
+        }
+        .input-container textarea {
+          border: none;
+          outline: none;
+          flex-grow: 1;
+          font-size: 16px;
+          padding: 5px;
+          resize: none;
+          overflow: hidden;
+          min-height: 24px;
+          max-height: 100px;
+          background-color: transparent;
+          color: inherit;
+        }
+        .mode-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+        }
+        .paperclip-button, .generate-button {
+          background: none;
+          border: none;
+          font-size: 20px;
+          cursor: pointer;
+          padding: 0 5px;
+        }
+        .generate-button {
+          background-color: #D2A76A;
+          color: white;
+          border-radius: 50%;
+          width: 40px;
+          height: 40px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .emoji-picker-container {
+          position: absolute;
+          bottom: 70px;
+          left: 10px;
+          z-index: 1000;
         }
         .section-content {
           padding: 20px;
@@ -697,13 +781,22 @@ export default function ImageGenerator() {
         .section-content {
           font-size: 15px;
         }
-        .section-content button{
-          font-size: 4px;
-          margin:8px;
+        .section-buttons {
+          display: flex;
+          justify-content: space-around;
+          margin-bottom: 10px;
         }
-        .credits-info {
-          margin-top: 20px;
-          text-align: center;
+        .section-button {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          background: none;
+          border: none;
+          cursor: pointer;
+          font-size: 12px;
+        }
+        .section-button svg {
+          margin-bottom: 5px;
         }
         .light .profile-button{
           background-color: white;
@@ -763,11 +856,86 @@ export default function ImageGenerator() {
         .sidebar-button:hover {
           background-color: #b88e59;
         }
-        .light .section-content Button{
-         
+        .light .section-content button {
           background-color: #D2A76A;
           color: black;
         }
+        .mode-toggle {
+          position: absolute;
+          bottom: 10px;
+          right: 10px;
+          z-index: 1000;
+        }
+        .color-pickers {
+          display: flex;
+          justify-content: space-around;
+          flex-wrap: wrap;
+        }
+        .color-picker {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          margin: 10px;
+        }
+        .color-picker input[type="color"] {
+          width: 50px;
+          height: 50px;
+          border: none;
+          border-radius: 50%;
+          overflow: hidden;
+          box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .color-picker span {
+          margin-top: 5px;
+          font-size: 12px;
+        }
+        .paperclip-button{
+          margin-left: 10px;
+        }
+        .paperclip-contents-div{
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+        .text-alignment{
+          display: flex;
+          flex-direction: row;
+          justify-content: space-around;
+        }
+        #paperclip-section-content {
+          padding: 20px;
+          background-color: #f0f0f0;
+          position: fixed;
+          bottom: 60px;
+          left: 0;
+          right: 0;
+          height: 200px;
+          max-height: 300px;
+          overflow-y: auto;
+          z-index: 900;
+        }
+        #image-section-content{
+          padding: 20px;
+          background-color: #f0f0f0;
+          position: fixed;
+          bottom: 60px;
+          left: 0;
+          right: 0;
+          height: 200px;
+          max-height: 300px;
+          overflow-y: auto;
+          z-index: 900;
+        
+        }
+        .dark  #paperclip-section-content{  
+          background-color: #333333;  
+        
+        }
+       .dark  #image-section-content{  
+          background-color: #333333;  
+        
+        } 
+         
         @media (max-width: 768px) {
           .header-buttons {
             flex-wrap: wrap;
@@ -786,8 +954,8 @@ export default function ImageGenerator() {
         </div>
         <div className="header-buttons">
           {user ? (
-            <button onClick={uploadAndDownloadImage} disabled={isGenerating || downloadCredits <= 0}>
-              <Download size={18} />
+            <button onClick={uploadAndDownloadImage} disabled={isGenerating}>
+              <Download size={18}  />
             </button>
           ) : (
             <button onClick={() => alert("Please log in to download images")}>
@@ -804,7 +972,7 @@ export default function ImageGenerator() {
       </header>
       <main>
         <div className="canvas-container" ref={canvasContainerRef}>
-          <canvas 
+          <canvas
             ref={canvasRef}
             onMouseDown={handleCanvasInteraction}
             onMouseMove={handleCanvasMove}
@@ -814,63 +982,65 @@ export default function ImageGenerator() {
             onTouchMove={handleCanvasMove}
             onTouchEnd={handleCanvasEnd}
           />
-          <div className="zoom-controls">
-            <button onClick={() => setZoom(Math.max(zoom - 10, 10))}>
-              <Minus size={18} />
-            </button>
-            <span>{zoom}%</span>
-            <button onClick={() => setZoom(Math.min(zoom + 10, 200))}>
-              <Plus size={18} />
-            </button>
-          </div>
+          <button className="mode-toggle" onClick={toggleAIMode}>
+            {isAIMode ? <Pen size={18} /> : <Cpu size={18} />}
+          </button>
         </div>
-        {user && (
-          <div className="credits-info">
-            <p>AI Credits: {aiCredits}</p>
-            <p>Download Credits: {downloadCredits}</p>
-            {nextResetTime && (
-              <p>Next reset: {new Date(nextResetTime).toLocaleString()}</p>
-            )}
-          </div>
-        )}
       </main>
       <div className="bottom-toolbar">
-        <button onClick={() => toggleSection('text')}>
-          <Pen size={18} />
-        </button>
-        <button onClick={() => toggleSection('image')}>
-          <ImageIcon size={18} />
-        </button>
-        <button onClick={() => toggleSection('font')}>
-          <Type size={18} />
-        </button>
-        <button onClick={() => toggleSection('color')}>
-          <Palette size={18} />
+        <div className="input-container">
+          <div className="mode-icon">
+            {isAIMode ? <Cpu size={18} /> : <Pen size={18} />}
+          </div>
+          <textarea
+            ref={textareaRef}
+            value={isAIMode ? inputText : formState.text}
+            onChange={handleTextChange}
+            placeholder={isAIMode ? "Enter prompt for AI text generation" : "Type your message..."}
+            rows={1}
+          />
+          <button className="paperclip-button" onClick={() => toggleSection('options')}>
+            <Paperclip size={18} />
+          </button>
+        </div>
+        <button className="generate-button" onClick={handleInputSubmit}>
+          <Send size={18} />
         </button>
       </div>
-      {activeSection === 'text' && (
-        <div className="section-content">
-          <label>AI text generator</label>
-          <textarea
-            value={aiPrompt}
-            onChange={(e) => setAiPrompt(e.target.value)}
-            placeholder={user ? "Enter prompt for AI text generation..." : "🌟 Ready to elevate your post? Let’s make it more engaging! 🚀"}
-            disabled={!user}
-          />
-          <button onClick={handleAITextGeneration} disabled={isGeneratingText || aiCredits <= 0 || !user}>
-            <Send size={18} />
-            {isGeneratingText ?  'Generating...' : ''}
-          </button>
-          <textarea
-            value={formState.text}
-            onChange={(e) => handleInputChange('text', e.target.value)}
-            placeholder={user ? "Edit generated text here..." : "Please log in to edit text"}
-            disabled={!user}
-          />
+      {showEmojiPicker && (
+        <div className="emoji-picker-container">
+          <EmojiPicker onEmojiClick={addEmoji} />
+        </div>
+      )}
+      {activeSection === 'options' && (
+        <div id="paperclip-section-content" className="section-content">
+          <div className="section-buttons">
+          
+          <div className='paperclip-contents-div'>
+            <button className="section-button" onClick={() => toggleSection('color')}>
+              <Palette size={18} />
+             
+            </button>
+            <span>Colors</span>
+          </div>
+          
+          <div className='paperclip-contents-div'>
+            <button className="section-button" onClick={() => toggleSection('font')}>
+              <Type size={18} />
+            </button>
+            <span>Font</span>
+          </div>
+          <div className='paperclip-contents-div'>
+            <button className="section-button" onClick={() => setShowEmojiPicker(true)}>
+              <Smile size={18} />
+            </button>
+            <span>Emoji</span>
+          </div>
+          </div>
         </div>
       )}
       {activeSection === 'image' && (
-        <div className="section-content">
+        <div className="section-content" id='image-section-content'>
           <input
             type="file"
             accept="image/*"
@@ -890,11 +1060,61 @@ export default function ImageGenerator() {
                 <option value="rectangle">Rectangle</option>
                 <option value="circle">Circle</option>
               </select>
+              <input
+                type="range"
+                min="20"
+                max="300"
+                value={img.width}
+                onChange={(e) => updateOverlayImage(index, { width: Number(e.target.value), height: Number(e.target.value) })}
+                disabled={!user}
+              />
               <button onClick={() => deleteOverlayImage(index)} disabled={!user}>
-                <Minus size={18} />
+                <X size={18} />
               </button>
             </div>
           ))}
+        </div>
+      )}
+      {activeSection === 'color' && (
+        <div className="section-content">
+          <div className="color-pickers">
+            <div className="color-picker">
+              <input
+                type="color"
+                value={formState.backgroundColor}
+                onChange={(e) => handleInputChange('backgroundColor', e.target.value)}
+                disabled={!user}
+              />
+              <span>Background</span>
+            </div>
+            <div className="color-picker">
+              <input
+                type="color"
+                value={formState.fontColor}
+                onChange={(e) => handleInputChange('fontColor', e.target.value)}
+                disabled={!user}
+              />
+              <span>Font</span>
+            </div>
+            <div className="color-picker">
+              <input
+                type="color"
+                value={formState.gradientStart}
+                onChange={(e) => handleInputChange('gradientStart', e.target.value)}
+                disabled={!user}
+              />
+              <span>Gradient Start</span>
+            </div>
+            <div className="color-picker">
+              <input
+                type="color"
+                value={formState.gradientEnd}
+                onChange={(e) => handleInputChange('gradientEnd', e.target.value)}
+                disabled={!user}
+              />
+              <span>Gradient End</span>
+            </div>
+          </div>
         </div>
       )}
       {activeSection === 'font' && (
@@ -919,46 +1139,17 @@ export default function ImageGenerator() {
             disabled={!user}
           />
           <span>{formState.fontSize}px</span>
-        </div>
-      )}
-      {activeSection === 'color' && (
-        <div className="section-content">
-          <label>
-            Background:
-            <input
-              type="color"
-              value={formState.backgroundColor}
-              onChange={(e) => handleInputChange('backgroundColor', e.target.value)}
-              disabled={!user}
-            />
-          </label>
-          <label>
-            Font Color:
-            <input
-              type="color"
-              value={formState.fontColor}
-              onChange={(e) => handleInputChange('fontColor', e.target.value)}
-              disabled={!user}
-            />
-          </label>
-          <label>
-            Gradient Start:
-            <input
-              type="color"
-              value={formState.gradientStart}
-              onChange={(e) => handleInputChange('gradientStart', e.target.value)}
-              disabled={!user}
-            />
-          </label>
-          <label>
-            Gradient End:
-            <input
-              type="color"
-              value={formState.gradientEnd}
-              onChange={(e) => handleInputChange('gradientEnd', e.target.value)}
-              disabled={!user}
-            />
-          </label>
+          <div className='text-alignment'>
+            <button onClick={() => handleInputChange('textAlign', 'left')} disabled={!user}>
+              <AlignLeft size={18} />
+            </button>
+            <button onClick={() => handleInputChange('textAlign', 'center')} disabled={!user}>
+              <AlignCenter size={18} />
+            </button>
+            <button onClick={() => handleInputChange('textAlign', 'right')} disabled={!user}>
+              <AlignRight size={18} />
+            </button>
+          </div>
         </div>
       )}
       <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
@@ -971,19 +1162,16 @@ export default function ImageGenerator() {
         <div className="sidebar-content">
           {user ? (
             <>
-              <p>Name: {user.displayName}</p>
-              <p>Email: {user.email}</p>
+              <p>Welcome, {user.displayName}!</p>
+              <p>{user.email}</p>
               <button className="sidebar-button" onClick={handleLogout}>
-              <LogOut size={18} />
-
+                <LogOut size={18} />
               </button>
             </>
           ) : (
-              
-           
-              <button className="sidebar-button" onClick={handleLogin}>
-                   <LogIn size={18} />
-                 </button>
+            <button className="sidebar-button" onClick={handleLogin}>
+              <LogIn size={18} />
+            </button>
           )}
         </div>
       </div>
