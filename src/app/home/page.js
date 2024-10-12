@@ -71,15 +71,43 @@ export default function ImageGenerator() {
 
   const fetchUserCredits = async (userId) => {
     const userDoc = await getDoc(doc(db, "users", userId));
+
     if (userDoc.exists()) {
       const userData = userDoc.data();
+
+      // Use server-side timestamp for comparison
+      const now = new Date();
+      const lastResetTime = userData.lastResetTime?.toDate() || new Date(0);
+      const nextResetTime = new Date(lastResetTime.getTime() + 24 * 60 * 60 * 1000); // 24 hours later
+
       setAiCredits(userData.aiCredits || 5);
       setDownloadCredits(userData.downloadCredits || 5);
-      setNextResetTime(userData.nextResetTime?.toDate() || null);
+      setNextResetTime(nextResetTime);
+
+      if (now >= nextResetTime) {
+        // Reset credits if the reset time has passed
+        await resetUserCredits(userId);
+      }
     } else {
       // If it's a new user, initialize their credits
       await initializeUserCredits(userId);
     }
+  };
+
+  const resetUserCredits = async (userId) => {
+    const userRef = doc(db, "users", userId);
+
+    const resetData = {
+      aiCredits: 5,
+      downloadCredits: 5,
+      lastResetTime: serverTimestamp(),
+    };
+
+    await updateDoc(userRef, resetData);
+
+    setAiCredits(resetData.aiCredits);
+    setDownloadCredits(resetData.downloadCredits);
+    setNextResetTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
   };
 
   const initializeUserCredits = async (userId) => {
@@ -92,7 +120,7 @@ export default function ImageGenerator() {
     await setDoc(doc(db, "users", userId), initialCredits);
     setAiCredits(initialCredits.aiCredits);
     setDownloadCredits(initialCredits.downloadCredits);
-    // The next reset time will be calculated and set by the server
+    setNextResetTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
   };
 
   const updateUserCredits = async (newAiCredits, newDownloadCredits) => {
@@ -107,14 +135,8 @@ export default function ImageGenerator() {
         lastUpdateTime: serverTimestamp(),
       });
 
-      // Fetch the updated user data to get the new credit values and next reset time
-      const updatedUserDoc = await getDoc(userRef);
-      if (updatedUserDoc.exists()) {
-        const updatedData = updatedUserDoc.data();
-        setAiCredits(updatedData.aiCredits);
-        setDownloadCredits(updatedData.downloadCredits);
-        setNextResetTime(updatedData.nextResetTime?.toDate() || null);
-      }
+      setAiCredits(newAiCredits);
+      setDownloadCredits(newDownloadCredits);
     } catch (error) {
       console.error("Error updating credits:", error);
       alert("Failed to update credits. Please try again.");
@@ -351,7 +373,7 @@ export default function ImageGenerator() {
       const textY = formState.textY * scale;
       const ctx = canvas.getContext('2d');
       const textWidth = ctx.measureText(formState.text).width;
-      const textHeight = formState.fontSize * scale;
+      const  textHeight = formState.fontSize * scale;
 
       if (x >= textX && x <= textX + textWidth && y >= textY - textHeight && y <= textY) {
         setIsMovingText(true);
@@ -370,8 +392,6 @@ export default function ImageGenerator() {
     const scale = window.devicePixelRatio;
     const x = (event.clientX - rect.left) * scale;
     const y = (event.clientY - rect.top) * scale;
-
-    
 
     if (isMoving) {
       const dx = (x - lastMousePosRef.current.x) / scale;
