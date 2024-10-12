@@ -37,7 +37,14 @@ return () => unsubscribe();
 const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
     
- 
+    try {
+        // Essayer d'utiliser signInWithPopup d'abord
+        const result = await signInWithPopup(auth, provider);
+        console.log('User signed in:', result.user);
+        setUser(result.user);
+        router.push('/home'); // Rediriger vers la page d'accueil après la connexion
+     } catch (error) {
+        console.error('Popup failed, trying redirect:', error.message);
        // Si signInWithPopup échoue, essayer avec signInWithRedirect
        try {
           await signInWithRedirect(auth, provider);
@@ -47,9 +54,9 @@ const handleGoogleSignIn = async () => {
        } catch (redirectError) {
           console.error('Error during sign in with redirect:', redirectError.message);
        }
+     }
     
  };
- 
 
 const handleGetStarted = () => {
 if (user) {
