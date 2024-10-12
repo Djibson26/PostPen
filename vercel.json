@@ -1,0 +1,9 @@
+{
+    "rewrites": [
+      {
+        "source": "/__/auth/(.*)",
+        "destination": "https://postpen-b343d.firebaseapp.com/__/auth/$1"
+      }
+    ]
+  }
+  

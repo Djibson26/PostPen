@@ -144,6 +144,7 @@ export default function ImageGenerator() {
       setIsGeneratingText(false);
     }
   };
+  
 
   const uploadAndDownloadImage = async () => {
     if (!user) {
