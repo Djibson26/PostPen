@@ -191,11 +191,10 @@ style={{
     }}
 >
     <h2 style={{ fontSize: isMobile ? '2rem' : '2.5rem', marginBottom: '1rem', color: shinyBronze }}>
-        Turn Words into Stunning Visuals Instantly
+       🌟Let's make your post  more engaging!🚀
     </h2>
     <p style={{ marginBottom: '1.5rem', fontSize: isMobile ? '1rem' : '1.1rem', color: '#e0e0e0' }}>
-        With PostPen, effortlessly create captivating visuals for social media, presentations, and
-        more—no design skills needed!
+    <strong>PostPen</strong> boosts your <em>social media views</em> by using <strong>AI</strong> to generate punchlines, advice, and jokes on images, making your posts more engaging and shareable
     </p>
     <button
         style={buttonStyles}
@@ -235,7 +234,7 @@ style={{
     {[
         { title: 'AI Text Generation', icon: '🤖✍️', description: 'Empower your message with the magic of AI!' },
         { title: 'Color Control', icon: '🎨', description: 'Choose perfect background and text colors' },
-        { title: 'Image Overlay', icon: '🖼️', description: 'Upload and overlay your own images' },
+        { title: 'Image Overlay : COMING SOON', icon: '🖼️', description: 'Upload and overlay your own images' },
     ].map((feature, index) => (
         <div key={index} style={featureItemStyles}>
             <div style={{ fontSize: '3rem', marginBottom: '1rem' }} aria-hidden="true">

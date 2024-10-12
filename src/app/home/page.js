@@ -477,12 +477,6 @@ export default function ImageGenerator() {
       setIsSidebarOpen(false);
     } catch (popupError) {
       console.error('Error during Google sign-in with popup:', popupError.message);
-      try {
-        await signInWithRedirect(auth, provider);
-      } catch (redirectError) {
-        console.error('Error during Google sign-in with redirect:', redirectError.message);
-        setAuthError('Failed to sign in. Please try again or check your browser settings.');
-      }
     }
   };
 
@@ -876,12 +870,15 @@ export default function ImageGenerator() {
           flex-direction: column;
           align-items: center;
           margin: 10px;
+          border: red;
+          border-radius: 0%;
+          
         }
         .color-picker input[type="color"] {
           width: 50px;
           height: 50px;
           border: none;
-          border-radius: 50%;
+          border-radius: 0%;
           overflow: hidden;
           box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
@@ -915,7 +912,15 @@ export default function ImageGenerator() {
           z-index: 900;
         }
         #color-section-content{
-          height:200;
+          padding: 20px;
+          position: fixed;
+          bottom: 60px;
+          left: 0;
+          right: 0;
+          height: 200px;
+          max-height: 300px;
+          overflow-y: auto;
+          z-index: 900;
         }
         #image-section-content{
           padding: 20px;
@@ -931,7 +936,7 @@ export default function ImageGenerator() {
         
         }
         #font-section{
-          height: 200px;
+          height: 250px;
 
         }
         .dark  #paperclip-section-content{  
