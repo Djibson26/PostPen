@@ -130,7 +130,7 @@ export default function ImageGenerator() {
     setIsGeneratingText(true);
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-      const basePrompt = "Create a concise, attention-grabbing text (1-3 lines) with emojis, based on the following input.You may use either English or French depending on the context provided. Make it lively, impactful, and easy to read. Focus on conveying the core message clearly and engagingly."
+      const basePrompt = "generate (1-3 lines) text with emojis, based on the following input. Make it easy to read."
       const result = await model.generateContent(basePrompt + prompt);
       const response = await result.response;
       const generatedText = response.text();
@@ -914,6 +914,9 @@ export default function ImageGenerator() {
           overflow-y: auto;
           z-index: 900;
         }
+        #color-section-content{
+          height:200;
+        }
         #image-section-content{
           padding: 20px;
           background-color: #f0f0f0;
@@ -1080,7 +1083,7 @@ export default function ImageGenerator() {
         </div>
       )}
       {activeSection === 'color' && (
-        <div className="section-content">
+        <div className="section-content" id='color-section-content'>
           <div className="color-pickers">
             <div className="color-picker">
               <input
