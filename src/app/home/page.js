@@ -4,7 +4,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { auth } from '../../lib/firebaseConfig';
 import { getStorage, ref, uploadString, getDownloadURL } from "firebase/storage";
-import { getFirestore, doc, setDoc, getDoc, updateDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { Download, Sun, Moon, Minus, Plus, Type, Pen, Palette, Image as ImageIcon, Send } from 'lucide-react';
 
@@ -76,46 +76,49 @@ export default function ImageGenerator() {
       setAiCredits(userData.aiCredits || 5);
       setDownloadCredits(userData.downloadCredits || 5);
       setNextResetTime(userData.nextResetTime?.toDate() || null);
-
-      // Check if credits need to be reset
-      const now = Timestamp.now();
-      if (!userData.nextResetTime || now.toMillis() >= userData.nextResetTime.toMillis()) {
-        await resetCredits(userId);
-      }
     } else {
       // If it's a new user, initialize their credits
-      await resetCredits(userId);
+      await initializeUserCredits(userId);
     }
   };
 
-  const resetCredits = async (userId) => {
-    const now = Timestamp.now();
-    const tomorrow = new Date(now.toDate());
-    tomorrow.setHours(24, 0, 0, 0);
-    const nextReset = Timestamp.fromDate(tomorrow);
-
-    await setDoc(doc(db, "users", userId), {
+  const initializeUserCredits = async (userId) => {
+    const initialCredits = {
       aiCredits: 5,
       downloadCredits: 5,
-      nextResetTime: nextReset,
-      lastResetTime: now
-    }, { merge: true });
+      lastResetTime: serverTimestamp(),
+    };
 
-    setAiCredits(5);
-    setDownloadCredits(5);
-    setNextResetTime(nextReset.toDate());
+    await setDoc(doc(db, "users", userId), initialCredits);
+    setAiCredits(initialCredits.aiCredits);
+    setDownloadCredits(initialCredits.downloadCredits);
+    // The next reset time will be calculated and set by the server
   };
 
   const updateUserCredits = async (newAiCredits, newDownloadCredits) => {
     if (!user) return;
 
-    await updateDoc(doc(db, "users", user.uid), {
-      aiCredits: newAiCredits,
-      downloadCredits: newDownloadCredits
-    });
+    const userRef = doc(db, "users", user.uid);
+    
+    try {
+      await updateDoc(userRef, {
+        aiCredits: newAiCredits,
+        downloadCredits: newDownloadCredits,
+        lastUpdateTime: serverTimestamp(),
+      });
 
-    setAiCredits(newAiCredits);
-    setDownloadCredits(newDownloadCredits);
+      // Fetch the updated user data to get the new credit values and next reset time
+      const updatedUserDoc = await getDoc(userRef);
+      if (updatedUserDoc.exists()) {
+        const updatedData = updatedUserDoc.data();
+        setAiCredits(updatedData.aiCredits);
+        setDownloadCredits(updatedData.downloadCredits);
+        setNextResetTime(updatedData.nextResetTime?.toDate() || null);
+      }
+    } catch (error) {
+      console.error("Error updating credits:", error);
+      alert("Failed to update credits. Please try again.");
+    }
   };
 
   const handleInputChange = (key, value) => {
@@ -368,12 +371,13 @@ export default function ImageGenerator() {
     const x = (event.clientX - rect.left) * scale;
     const y = (event.clientY - rect.top) * scale;
 
+    
+
     if (isMoving) {
       const dx = (x - lastMousePosRef.current.x) / scale;
       const dy = (y - lastMousePosRef.current.y) / scale;
 
-      updateOverlayImage(selectedImage, 
- { 
+      updateOverlayImage(selectedImage, { 
         x: overlayImages[selectedImage].x + dx,
         y: overlayImages[selectedImage].y + dy
       });
