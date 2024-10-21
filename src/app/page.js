@@ -47,23 +47,12 @@ const handleGoogleSignIn = async () => {
     } else {
        const provider = new GoogleAuthProvider();
        try {
-          // Essayer d'abord de se connecter avec signInWithPopup
-          const result = await signInWithPopup(auth, provider);
-          console.log('User signed in:', result.user);
-          setUser(result.user);
-          router.push('/home'); // Redirection après connexion
+          // Utilise signInWithRedirect pour l'authentification Google
+          console.log('Using signInWithRedirect...');
+          await signInWithRedirect(auth, provider);
+          // L'utilisateur sera redirigé après une authentification réussie
        } catch (error) {
-          console.error('Error during Google sign-in with popup:', error.message);
-          // Si signInWithPopup échoue, essayer signInWithRedirect
-          try {
-             console.log('Trying signInWithRedirect...');
-             await signInWithRedirect(auth, provider);
-             // Redirection après la connexion réussie
-             setUser(auth.currentUser);
-             router.push('/home');
-          } catch (redirectError) {
-             console.error('Error during Google sign-in with redirect:', redirectError.message);
-          }
+          console.error('Error during Google sign-in with redirect:', error.message);
        }
     }
  };
