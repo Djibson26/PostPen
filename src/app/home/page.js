@@ -21,7 +21,7 @@ export default function ImageGenerator() {
     text: "🌟Let's make your post  more engaging!🚀",
     backgroundColor: 'black',
     fontColor: 'white',
-    fontSize: 24,
+    fontSize: 30,
     fontFamily: 'Inter',
     textX: 0,
     textY: 210,
@@ -130,7 +130,7 @@ export default function ImageGenerator() {
     setIsGeneratingText(true);
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-      const basePrompt = "Create a concise, attention-grabbing text (1-3 lines) with emojis, based on the following input. Make it lively, impactful, and easy to read. Focus on conveying the core message clearly and engagingly."
+      const basePrompt = "Create a concise, attention-grabbing text (1-3 lines) with emojis, based on the following input.You may use either English or French depending on the context provided. Make it lively, impactful, and easy to read. Focus on conveying the core message clearly and engagingly."
       const result = await model.generateContent(basePrompt + prompt);
       const response = await result.response;
       const generatedText = response.text();
