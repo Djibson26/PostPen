@@ -36,26 +36,38 @@ return () => unsubscribe();
 
 // Handle Google sign-in or sign-out
 const handleGoogleSignIn = async () => {
-if (user) {
-try {
-await signOut(auth);
-console.log('User signed out');
-setUser(null);
-} catch (error) {
-console.error('Error during sign out:', error.message);
-}
-} else {
-const provider = new GoogleAuthProvider();
-try {
-const result = await signInWithPopup(auth, provider);
-console.log('User signed in:', result.user);
-setUser(result.user);
-router.push('/home'); // Redirect to home after sign-in
-} catch (error) {
-console.error('Error during Google sign-in:', error.message);
-}
-}
-};
+    if (user) {
+       try {
+          await signOut(auth);
+          console.log('User signed out');
+          setUser(null);
+       } catch (error) {
+          console.error('Error during sign out:', error.message);
+       }
+    } else {
+       const provider = new GoogleAuthProvider();
+       try {
+          // Essayer d'abord de se connecter avec signInWithPopup
+          const result = await signInWithPopup(auth, provider);
+          console.log('User signed in:', result.user);
+          setUser(result.user);
+          router.push('/home'); // Redirection après connexion
+       } catch (error) {
+          console.error('Error during Google sign-in with popup:', error.message);
+          // Si signInWithPopup échoue, essayer signInWithRedirect
+          try {
+             console.log('Trying signInWithRedirect...');
+             await signInWithRedirect(auth, provider);
+             // Redirection après la connexion réussie
+             setUser(auth.currentUser);
+             router.push('/home');
+          } catch (redirectError) {
+             console.error('Error during Google sign-in with redirect:', redirectError.message);
+          }
+       }
+    }
+ };
+ 
 
 const handleGetStarted = () => {
 if (user) {
