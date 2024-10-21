@@ -130,7 +130,7 @@ export default function ImageGenerator() {
     setIsGeneratingText(true);
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-      const basePrompt = "Generate a short, engaging text between 1 to 3 lines based on the following prompt. Keep it concise and impactful: ";
+      const basePrompt = "Create a concise, attention-grabbing text (1-3 lines) with emojis, based on the following input. Make it lively, impactful, and easy to read. Focus on conveying the core message clearly and engagingly."
       const result = await model.generateContent(basePrompt + prompt);
       const response = await result.response;
       const generatedText = response.text();
