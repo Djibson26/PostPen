@@ -34,25 +34,25 @@ setUser(null);
 return () => unsubscribe();
 }, [router]);
 
-// Handle Google sign-in or sign-out
 const handleGoogleSignIn = async () => {
-    if (user) {
+    const provider = new GoogleAuthProvider();
+    
+    try {
+       // Essayer d'utiliser signInWithPopup d'abord
+       const result = await signInWithPopup(auth, provider);
+       console.log('User signed in:', result.user);
+       setUser(result.user);
+       router.push('/home'); // Rediriger vers la page d'accueil après la connexion
+    } catch (error) {
+       console.error('Popup failed, trying redirect:', error.message);
+       // Si signInWithPopup échoue, essayer avec signInWithRedirect
        try {
-          await signOut(auth);
-          console.log('User signed out');
-          setUser(null);
-       } catch (error) {
-          console.error('Error during sign out:', error.message);
-       }
-    } else {
-       const provider = new GoogleAuthProvider();
-       try {
-          // Utilise signInWithRedirect pour l'authentification Google
-          console.log('Using signInWithRedirect...');
           await signInWithRedirect(auth, provider);
-          // L'utilisateur sera redirigé après une authentification réussie
-       } catch (error) {
-          console.error('Error during Google sign-in with redirect:', error.message);
+          // Redirection vers la page d'accueil après la connexion (effectuée après la redirection)
+          setUser(auth.currentUser);
+          router.push('/home');
+       } catch (redirectError) {
+          console.error('Error during sign in with redirect:', redirectError.message);
        }
     }
  };

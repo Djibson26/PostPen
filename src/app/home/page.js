@@ -21,7 +21,7 @@ export default function ImageGenerator() {
     text: "🌟Let's make your post  more engaging!🚀",
     backgroundColor: 'black',
     fontColor: 'white',
-    fontSize: 30,
+    fontSize: 24,
     fontFamily: 'Inter',
     textX: 0,
     textY: 210,
