@@ -21,10 +21,10 @@ export default function ImageGenerator() {
     text: "🌟Let's make your post  more engaging!🚀",
     backgroundColor: 'black',
     fontColor: 'white',
-    fontSize: 30,
+    fontSize: 24,
     fontFamily: 'Inter',
     textX: 0,
-    textY: 210,
+    textY: 150,
     lineHeight: 1.2,
     maxWidth: 90,
     textAlign: 'center',
@@ -927,6 +927,10 @@ export default function ImageGenerator() {
           z-index: 900;
         
         }
+        #font-section{
+          height: 200px;
+
+        }
         .dark  #paperclip-section-content{  
           background-color: #333333;  
         
@@ -1118,7 +1122,7 @@ export default function ImageGenerator() {
         </div>
       )}
       {activeSection === 'font' && (
-        <div className="section-content">
+        <div className="section-content" id='font-section'>
           <select
             value={formState.fontFamily}
             onChange={(e) => handleInputChange('fontFamily', e.target.value)}
